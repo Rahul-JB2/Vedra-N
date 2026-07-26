@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
@@ -49,6 +50,7 @@ import com.example.ui.screens.ActionsScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.MemoryScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.StudyHubScreen
 import com.example.ui.screens.VedScreen
 import com.example.ui.screens.VoiceModeOverlay
 import com.example.ui.theme.VedraBackground
@@ -114,6 +116,7 @@ fun MainAppLayout(
 
     val tabs = listOf(
         TabItem("Home", Icons.Default.Home),
+        TabItem("Study", Icons.Default.School),
         TabItem("Ved", Icons.Default.Mic),
         TabItem("Actions", Icons.Default.FlashOn),
         TabItem("Memory", Icons.Default.Psychology),
@@ -148,12 +151,12 @@ fun MainAppLayout(
                                 },
                                 onLongClick = {
                                     hasUserInteracted = true
-                                    if (index == 1) { // Ved tab long press -> Activates VoiceMode globally
+                                    if (index == 2) { // Ved tab long press -> Activates VoiceMode globally
                                         isVoiceModeActive = true
                                     }
                                 }
                             )
-                            .padding(vertical = 8.dp),
+                            .padding(vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -161,7 +164,7 @@ fun MainAppLayout(
                                 imageVector = tab.icon,
                                 contentDescription = tab.title,
                                 tint = tint,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
@@ -197,7 +200,10 @@ fun MainAppLayout(
                         UtilityService.parseAndExecuteLocalCommand(context, dbService, actionText)
                     }
                 )
-                1 -> VedScreen(
+                1 -> StudyHubScreen(
+                    dbService = dbService
+                )
+                2 -> VedScreen(
                     dbService = dbService,
                     voiceService = voiceService,
                     onActivateVoiceMode = {
@@ -205,20 +211,22 @@ fun MainAppLayout(
                         isVoiceModeActive = true
                     }
                 )
-                2 -> ActionsScreen(
+                3 -> ActionsScreen(
                     onExecuteAction = { cmd ->
                         hasUserInteracted = true
                         UtilityService.parseAndExecuteLocalCommand(context, dbService, cmd)
                     }
                 )
-                3 -> MemoryScreen(
+                4 -> MemoryScreen(
                     dbService = dbService,
                     onTestLaunch = { customWord ->
                         hasUserInteracted = true
                         UtilityService.parseAndExecuteLocalCommand(context, dbService, "open $customWord")
                     }
                 )
-                4 -> SettingsScreen()
+                5 -> SettingsScreen(
+                    dbService = dbService
+                )
             }
 
             // Global VoiceMode Overlay

@@ -22,26 +22,26 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.BatteryFull
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Chat
-import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,10 +49,14 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.services.BatteryStatus
+import com.example.services.StorageDetails
+import com.example.services.StorageWeatherService
+import com.example.services.WeatherInfo
 import com.example.ui.components.CustomButton
 import com.example.ui.components.CustomCard
 import com.example.ui.theme.Spacing
@@ -77,6 +81,23 @@ fun HomeScreen(
     onExecuteQuickAction: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+
+    var battery by remember { mutableStateOf(BatteryStatus(88, "Discharging", false)) }
+    var weather by remember { mutableStateOf(WeatherInfo()) }
+    var storage by remember { mutableStateOf(StorageDetails(1.25, 42.5, 64.0)) }
+    var storageStatusMsg by remember { mutableStateOf<String?>(null) }
+
+    fun refreshDashboardData() {
+        battery = StorageWeatherService.getBatteryStatus(context)
+        weather = StorageWeatherService.getWeatherInfo()
+        storage = StorageWeatherService.getStorageDetails(context)
+    }
+
+    LaunchedEffect(Unit) {
+        refreshDashboardData()
+    }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -95,7 +116,7 @@ fun HomeScreen(
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "Good Morning, User",
+                            text = "Daily Briefing",
                             color = VedraTextPrimary,
                             fontWeight = FontWeight.Bold,
                             fontSize = 22.sp
@@ -105,9 +126,9 @@ fun HomeScreen(
                     }
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "I'm Vedra, your AI assistant",
+                        text = "VEDRA AI • All systems active",
                         color = VedraTextSecondary,
-                        fontSize = 14.sp
+                        fontSize = 13.sp
                     )
                 }
 
@@ -155,12 +176,135 @@ fun HomeScreen(
             }
         }
 
-        // Central Glowing Voice Orb
+        // Central Voice Orb Card
         item {
             VoiceOrbCard(onActivateVoice = onActivateVoice)
         }
 
-        // VEDRA Suggestions Title
+        // Weather Widget Card
+        item {
+            CustomCard(borderColor = VedraCyanAccent) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(VedraCyanAccent.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Cloud,
+                                contentDescription = null,
+                                tint = VedraCyanAccent,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(Spacing.medium))
+                        Column {
+                            Text(
+                                text = "${weather.temperature} • ${weather.condition}",
+                                color = VedraTextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                            Text(
+                                text = "${weather.location} • Humidity: ${weather.humidity}",
+                                color = VedraTextSecondary,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Storage & Battery Cards
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.small)
+            ) {
+                StatusCard(
+                    title = "Battery Level",
+                    value = "${battery.percentage}%",
+                    status = battery.statusText,
+                    icon = if (battery.isCharging) Icons.Default.BatteryChargingFull else Icons.Default.BatteryFull,
+                    iconColor = VedraOnlineGreen,
+                    modifier = Modifier.weight(1f)
+                )
+                StatusCard(
+                    title = "Device Storage",
+                    value = "${storage.freeSpaceGB} GB free",
+                    status = "Total: ${storage.totalSpaceGB} GB",
+                    icon = Icons.Default.Storage,
+                    iconColor = VedraBlueAccent,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        // Storage Manager Section
+        item {
+            CustomCard(borderColor = VedraPurplePrimary) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.CleaningServices,
+                                contentDescription = null,
+                                tint = VedraPurpleSecondary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(Spacing.small))
+                            Column {
+                                Text(
+                                    text = "Storage Manager",
+                                    color = VedraTextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                                Text(
+                                    text = "App Cache: ${storage.cacheSizeMB} MB",
+                                    color = VedraTextSecondary,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+
+                        CustomButton(
+                            text = "Clear Cache",
+                            onClick = {
+                                val msg = StorageWeatherService.clearAppCache(context)
+                                storageStatusMsg = msg
+                                refreshDashboardData()
+                            },
+                            isSecondary = true,
+                            modifier = Modifier.height(34.dp)
+                        )
+                    }
+
+                    if (storageStatusMsg != null) {
+                        Text(
+                            text = storageStatusMsg!!,
+                            color = VedraOnlineGreen,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+
+        // Suggestions Title
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -168,7 +312,7 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "VEDRA Suggestions for you",
+                    text = "VEDRA Quick Suggestions",
                     color = VedraTextPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp
@@ -178,12 +322,12 @@ fun HomeScreen(
                     color = VedraPurplePrimary,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable { onNavigateTab(2) }
+                    modifier = Modifier.clickable { onNavigateTab(3) } // Actions tab
                 )
             }
         }
 
-        // Suggestions Grid (4 cards)
+        // Suggestions Grid
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -191,17 +335,17 @@ fun HomeScreen(
             ) {
                 SuggestionCard(
                     title = "Open WhatsApp",
-                    subtitle = "Open directly",
+                    subtitle = "Quick launch",
                     color = Color(0xFF25D366),
                     modifier = Modifier.weight(1f),
                     onClick = { onExecuteQuickAction("open whatsapp") }
                 )
                 SuggestionCard(
-                    title = "Study Planner",
-                    subtitle = "Plan your study",
+                    title = "JEE Study Hub",
+                    subtitle = "Planner & Flashcards",
                     color = VedraBlueAccent,
                     modifier = Modifier.weight(1f),
-                    onClick = { onExecuteQuickAction("study planner") }
+                    onClick = { onNavigateTab(1) } // Study tab
                 )
             }
             Spacer(modifier = Modifier.height(Spacing.small))
@@ -217,112 +361,11 @@ fun HomeScreen(
                     onClick = { onExecuteQuickAction("turn on flashlight") }
                 )
                 SuggestionCard(
-                    title = "Calculator",
-                    subtitle = "Perform math",
+                    title = "Call Mom",
+                    subtitle = "Quick call",
                     color = VedraPinkAccent,
                     modifier = Modifier.weight(1f),
-                    onClick = { onExecuteQuickAction("open calculator") }
-                )
-            }
-        }
-
-        // Study Hub Card
-        item {
-            CustomCard(
-                borderColor = VedraPurplePrimary,
-                testTag = "study_hub_card"
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(VedraSurfaceVariant),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.School,
-                                contentDescription = null,
-                                tint = VedraPurpleSecondary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(Spacing.medium))
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "Study Mode",
-                                    color = VedraTextPrimary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "New",
-                                    color = VedraCyanAccent,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier
-                                        .background(
-                                            VedraCyanAccent.copy(alpha = 0.2f),
-                                            RoundedCornerShape(8.dp)
-                                        )
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                            Text(
-                                text = "Your smart study companion for exams",
-                                color = VedraTextSecondary,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-
-                    CustomButton(
-                        text = "Open Hub",
-                        onClick = { onNavigateTab(1) },
-                        isSecondary = true
-                    )
-                }
-            }
-        }
-
-        // Quick Status
-        item {
-            Text(
-                text = "Quick Status",
-                color = VedraTextPrimary,
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                modifier = Modifier.padding(top = Spacing.small)
-            )
-        }
-
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.small)
-            ) {
-                StatusCard(
-                    title = "Battery",
-                    value = "85%",
-                    status = "Discharging",
-                    icon = Icons.Default.BatteryFull,
-                    iconColor = VedraOnlineGreen,
-                    modifier = Modifier.weight(1f)
-                )
-                StatusCard(
-                    title = "Storage",
-                    value = "64%",
-                    status = "40.1 GB free",
-                    icon = Icons.Default.Storage,
-                    iconColor = VedraBlueAccent,
-                    modifier = Modifier.weight(1f)
+                    onClick = { onExecuteQuickAction("call mom") }
                 )
             }
         }
@@ -354,12 +397,11 @@ fun VoiceOrbCard(onActivateVoice: () -> Unit) {
         ) {
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.size(130.dp)
+                modifier = Modifier.size(120.dp)
             ) {
-                // Outer glow
                 Box(
                     modifier = Modifier
-                        .size(120.dp)
+                        .size(110.dp)
                         .scale(pulseScale)
                         .clip(CircleShape)
                         .background(
@@ -373,10 +415,9 @@ fun VoiceOrbCard(onActivateVoice: () -> Unit) {
                         )
                 )
 
-                // Orb container
                 Box(
                     modifier = Modifier
-                        .size(90.dp)
+                        .size(80.dp)
                         .clip(CircleShape)
                         .background(
                             Brush.linearGradient(
@@ -390,7 +431,7 @@ fun VoiceOrbCard(onActivateVoice: () -> Unit) {
                         imageVector = Icons.Default.Mic,
                         contentDescription = "Voice Assistant",
                         tint = VedraTextPrimary,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(36.dp)
                     )
                 }
             }
@@ -398,22 +439,20 @@ fun VoiceOrbCard(onActivateVoice: () -> Unit) {
             Spacer(modifier = Modifier.height(Spacing.medium))
 
             Text(
-                text = "Tap to Start Listening",
+                text = "Tap to Talk to VEDRA",
                 color = VedraPurpleSecondary,
                 fontWeight = FontWeight.Bold,
-                fontSize = 16.sp
+                fontSize = 15.sp
             )
 
             Spacer(modifier = Modifier.height(Spacing.small))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.small)) {
-                CustomButton(
-                    text = "Start",
-                    icon = Icons.Default.Mic,
-                    onClick = onActivateVoice,
-                    modifier = Modifier.height(38.dp)
-                )
-            }
+            CustomButton(
+                text = "Start Listening",
+                icon = Icons.Default.Mic,
+                onClick = onActivateVoice,
+                modifier = Modifier.height(36.dp)
+            )
         }
     }
 }
@@ -441,7 +480,7 @@ fun SuggestionCard(
                     text = title,
                     color = VedraTextPrimary,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
+                    fontSize = 13.sp
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
@@ -475,12 +514,12 @@ fun StatusCard(
                 imageVector = icon,
                 contentDescription = null,
                 tint = iconColor,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(22.dp)
             )
             Spacer(modifier = Modifier.width(Spacing.small))
             Column {
                 Text(text = title, color = VedraTextMuted, fontSize = 11.sp)
-                Text(text = value, color = VedraTextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(text = value, color = VedraTextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 Text(text = status, color = iconColor, fontSize = 10.sp)
             }
         }

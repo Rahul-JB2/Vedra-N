@@ -14,54 +14,79 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.services.CustomRoutine
+import com.example.services.DatabaseService
 import com.example.ui.components.CustomButton
 import com.example.ui.components.CustomCard
+import com.example.ui.components.CustomInput
 import com.example.ui.components.CustomModal
 import com.example.ui.theme.Spacing
 import com.example.ui.theme.VedraBackground
 import com.example.ui.theme.VedraBorder
 import com.example.ui.theme.VedraCyanAccent
+import com.example.ui.theme.VedraPinkAccent
 import com.example.ui.theme.VedraPurplePrimary
 import com.example.ui.theme.VedraPurpleSecondary
 import com.example.ui.theme.VedraTextMuted
 import com.example.ui.theme.VedraTextPrimary
 import com.example.ui.theme.VedraTextSecondary
+import org.json.JSONArray
 
 @Composable
 fun SettingsScreen(
+    dbService: DatabaseService,
     modifier: Modifier = Modifier
 ) {
     var isVoiceSettingsModalOpen by remember { mutableStateOf(false) }
     var speechSpeed by remember { mutableFloatStateOf(1.0f) }
     var wakeWordEnabled by remember { mutableStateOf(true) }
+
+    // Task Chains / Routines State
+    var isAddRoutineModalOpen by remember { mutableStateOf(false) }
+    var routineTriggerInput by remember { mutableStateOf("") }
+    var routineActionsInput by remember { mutableStateOf("") } // Comma separated actions
+
+    val routines = remember { mutableStateListOf<CustomRoutine>() }
+
+    fun refreshRoutines() {
+        routines.clear()
+        routines.addAll(dbService.getAllRoutines())
+    }
+
+    LaunchedEffect(Unit) {
+        refreshRoutines()
+    }
 
     LazyColumn(
         modifier = modifier
@@ -73,14 +98,14 @@ fun SettingsScreen(
     ) {
         item {
             Text(
-                text = "SETTINGS",
+                text = "SETTINGS & ROUTINES",
                 color = VedraTextPrimary,
                 fontWeight = FontWeight.Bold,
                 fontSize = 20.sp
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "Customize VEDRA your way",
+                text = "Customize VEDRA & Configure Task Chains",
                 color = VedraTextSecondary,
                 fontSize = 12.sp
             )
@@ -88,9 +113,7 @@ fun SettingsScreen(
 
         // Vedra Pro Card
         item {
-            CustomCard(
-                borderColor = VedraPurplePrimary
-            ) {
+            CustomCard(borderColor = VedraPurplePrimary) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -114,7 +137,7 @@ fun SettingsScreen(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Access to offline AI, voice assistant & custom triggers.",
+                            text = "Offline AI, task chains, voice assistant & custom triggers.",
                             color = VedraTextSecondary,
                             fontSize = 12.sp
                         )
@@ -130,8 +153,76 @@ fun SettingsScreen(
             }
         }
 
+        // TASK CHAINS / ROUTINES SECTION
         item {
-            Text(text = "GENERAL", color = VedraTextSecondary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "TASK CHAINS & AUTOMATION", color = VedraTextSecondary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                CustomButton(
+                    text = "Add Routine",
+                    icon = Icons.Default.Add,
+                    onClick = {
+                        routineTriggerInput = ""
+                        routineActionsInput = ""
+                        isAddRoutineModalOpen = true
+                    },
+                    modifier = Modifier.height(32.dp)
+                )
+            }
+        }
+
+        if (routines.isEmpty()) {
+            item {
+                Text(text = "No custom task chains configured.", color = VedraTextMuted, fontSize = 12.sp)
+            }
+        } else {
+            items(routines, key = { it.id }) { routine ->
+                CustomCard(borderColor = VedraCyanAccent) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(imageVector = Icons.Default.Repeat, contentDescription = null, tint = VedraCyanAccent)
+                            Spacer(modifier = Modifier.width(Spacing.medium))
+                            Column {
+                                Text(
+                                    text = "Trigger: \"${routine.triggerPhrase}\"",
+                                    color = VedraTextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = "Actions: ${routine.actionChainJson}",
+                                    color = VedraTextMuted,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = {
+                                dbService.deleteRoutine(routine.id)
+                                refreshRoutines()
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = VedraPinkAccent, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Text(text = "GENERAL SETTINGS", color = VedraTextSecondary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
         }
 
         val generalSettings = listOf(
@@ -168,7 +259,7 @@ fun SettingsScreen(
         }
     }
 
-    // Modal using CustomModal
+    // Modal for Voice Settings
     CustomModal(
         visible = isVoiceSettingsModalOpen,
         title = "Voice & Speech Settings",
@@ -212,6 +303,41 @@ fun SettingsScreen(
             CustomButton(
                 text = "Save Voice Preferences",
                 onClick = { isVoiceSettingsModalOpen = false },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+
+    // Modal for Adding Custom Task Chain / Routine
+    CustomModal(
+        visible = isAddRoutineModalOpen,
+        title = "Create Task Chain Routine",
+        onDismissRequest = { isAddRoutineModalOpen = false }
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.medium)) {
+            CustomInput(
+                value = routineTriggerInput,
+                onValueChange = { routineTriggerInput = it },
+                placeholder = "Trigger Phrase (e.g. good morning)"
+            )
+            CustomInput(
+                value = routineActionsInput,
+                onValueChange = { routineActionsInput = it },
+                placeholder = "Actions comma separated (e.g. Read Weather, Read Battery, Open WhatsApp)"
+            )
+            CustomButton(
+                text = "Save Routine Chain",
+                onClick = {
+                    if (routineTriggerInput.isNotBlank() && routineActionsInput.isNotBlank()) {
+                        val actionsList = routineActionsInput.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                        val jsonArr = JSONArray()
+                        actionsList.forEach { jsonArr.put(it) }
+
+                        dbService.addOrUpdateRoutine(routineTriggerInput, jsonArr.toString())
+                        refreshRoutines()
+                        isAddRoutineModalOpen = false
+                    }
+                },
                 modifier = Modifier.fillMaxWidth()
             )
         }

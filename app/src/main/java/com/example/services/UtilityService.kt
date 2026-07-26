@@ -4,14 +4,15 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.hardware.camera2.CameraManager
-import android.os.Build
 import java.util.Locale
 import kotlin.math.pow
+import org.json.JSONArray
 
 data class UtilityResult(
     val isHandled: Boolean,
     val responseMessage: String,
-    val actionType: String = "GENERAL"
+    val actionType: String = "GENERAL",
+    val eventData: CalendarEventItem? = null
 )
 
 object UtilityService {
@@ -74,7 +75,6 @@ object UtilityService {
 
         if (clean.isEmpty()) return null
 
-        // Try parsing simple math pattern: A [op] B
         val regex = Regex("""^(-?\d+(?:\.\d+)?)\s*([\+\-\*\/\^%])\s*(-?\d+(?:\.\d+)?)$""")
         val match = regex.find(clean) ?: return null
 
@@ -117,7 +117,6 @@ object UtilityService {
         val value = valString.toDoubleOrNull() ?: return null
 
         return when {
-            // Mass: kg <-> lbs
             (fromUnit == "kg" || fromUnit == "kgs" || fromUnit == "kilogram") && (toUnit == "lbs" || toUnit == "lb" || toUnit == "pounds") -> {
                 val converted = value * 2.20462
                 String.format(Locale.US, "%.2f kg = %.2f lbs ⚖️", value, converted)
@@ -126,8 +125,6 @@ object UtilityService {
                 val converted = value / 2.20462
                 String.format(Locale.US, "%.2f lbs = %.2f kg ⚖️", value, converted)
             }
-
-            // Distance: km <-> miles
             (fromUnit == "km" || fromUnit == "kilometer" || fromUnit == "kms") && (toUnit == "miles" || toUnit == "mile" || toUnit == "mi") -> {
                 val converted = value * 0.621371
                 String.format(Locale.US, "%.2f km = %.2f miles 📏", value, converted)
@@ -136,8 +133,6 @@ object UtilityService {
                 val converted = value / 0.621371
                 String.format(Locale.US, "%.2f miles = %.2f km 📏", value, converted)
             }
-
-            // Temperature: c <-> f
             (fromUnit == "c" || fromUnit == "celsius") && (toUnit == "f" || toUnit == "fahrenheit") -> {
                 val converted = (value * 9 / 5) + 32
                 String.format(Locale.US, "%.1f °C = %.1f °F 🌡️", value, converted)
@@ -146,13 +141,18 @@ object UtilityService {
                 val converted = (value - 32) * 5 / 9
                 String.format(Locale.US, "%.1f °F = %.1f °C 🌡️", value, converted)
             }
-
             else -> null
         }
     }
 
     fun parseAndExecuteLocalCommand(context: Context, dbService: DatabaseService, text: String): UtilityResult {
         val lower = text.trim().lowercase(Locale.US)
+
+        // Routine Execution Check
+        val routineJson = dbService.getRoutineForTrigger(lower)
+        if (routineJson != null) {
+            return executeRoutineChain(context, dbService, lower, routineJson)
+        }
 
         // Flashlight commands
         if (lower.contains("turn on flashlight") || lower == "flashlight on" || lower == "flashlight") {
@@ -162,6 +162,77 @@ object UtilityService {
         if (lower.contains("turn off flashlight") || lower == "flashlight off") {
             val msg = toggleFlashlight(context, false)
             return UtilityResult(true, msg, "FLASHLIGHT")
+        }
+
+        // Battery / Weather / Storage Commands
+        if (lower.contains("battery") || lower == "read battery") {
+            val b = StorageWeatherService.getBatteryStatus(context)
+            val msg = "Battery Level: ${b.percentage}% (${b.statusText})"
+            return UtilityResult(true, msg, "BATTERY")
+        }
+        if (lower.contains("weather") || lower == "read weather") {
+            val w = StorageWeatherService.getWeatherInfo()
+            val msg = "Weather in ${w.location}: ${w.temperature}, ${w.condition}. Humidity: ${w.humidity}."
+            return UtilityResult(true, msg, "WEATHER")
+        }
+        if (lower.contains("clear cache") || lower.contains("clear storage")) {
+            val msg = StorageWeatherService.clearAppCache(context)
+            return UtilityResult(true, msg, "STORAGE")
+        }
+
+        // Call Command: "Call [Name]"
+        if (lower.startsWith("call ")) {
+            val nameOrAlias = text.substring(5).trim()
+            if (nameOrAlias.isNotEmpty()) {
+                // 1. Resolve Alias from DB
+                val resolvedTarget = dbService.resolveAlias(nameOrAlias) ?: nameOrAlias
+                // 2. Query Contact or dial directly
+                val contactInfo = ContactsService.findContactByName(context, resolvedTarget)
+                val dialTarget = contactInfo?.phoneNumber ?: resolvedTarget
+                val msg = ContactsService.makeCall(context, dialTarget)
+                return UtilityResult(true, msg, "CALL")
+            }
+        }
+
+        // Text / SMS Command: "Text [Name] [Message]"
+        if (lower.startsWith("text ") || lower.startsWith("send sms ")) {
+            val raw = text.replace("send sms ", "", ignoreCase = true).replace("text ", "", ignoreCase = true).trim()
+            val spaceIdx = raw.indexOf(' ')
+            if (spaceIdx > 0) {
+                val targetName = raw.substring(0, spaceIdx).trim()
+                val smsMsg = raw.substring(spaceIdx + 1).trim()
+
+                val resolvedTarget = dbService.resolveAlias(targetName) ?: targetName
+                val contactInfo = ContactsService.findContactByName(context, resolvedTarget)
+                val finalNum = contactInfo?.phoneNumber ?: resolvedTarget
+
+                val msg = ContactsService.sendSMS(context, finalNum, smsMsg)
+                return UtilityResult(true, msg, "SMS")
+            }
+        }
+
+        // Calendar Reminder: "Remind me to [Task] at [Time]"
+        if (lower.startsWith("remind me to ") || lower.startsWith("add reminder ")) {
+            val clean = text.replace("remind me to ", "", ignoreCase = true)
+                .replace("add reminder ", "", ignoreCase = true)
+                .trim()
+
+            var taskPart = clean
+            var timePart = "Today at 5:00 PM"
+
+            if (clean.contains(" at ")) {
+                val parts = clean.split(" at ")
+                taskPart = parts[0]
+                timePart = parts[1]
+            }
+
+            val event = CalendarService.createReminderEvent(context, taskPart, timePart)
+            return UtilityResult(
+                isHandled = true,
+                responseMessage = "Reminder created: \"${event.title}\" at ${event.timeStr}",
+                actionType = "CALENDAR_CARD",
+                eventData = event
+            )
         }
 
         // Clipboard commands
@@ -198,7 +269,7 @@ object UtilityService {
             }
         }
 
-        // App Launch commands (e.g. "open whatsapp", "launch chrome", "open notes")
+        // App Launch commands (e.g. "open whatsapp", "launch chrome")
         if (lower.startsWith("open ") || lower.startsWith("launch ") || lower.startsWith("start ")) {
             val appWord = text.replace("open ", "", ignoreCase = true)
                 .replace("launch ", "", ignoreCase = true)
@@ -211,5 +282,32 @@ object UtilityService {
         }
 
         return UtilityResult(false, "")
+    }
+
+    private fun executeRoutineChain(
+        context: Context,
+        dbService: DatabaseService,
+        triggerName: String,
+        jsonArrayStr: String
+    ): UtilityResult {
+        return try {
+            val array = JSONArray(jsonArrayStr)
+            val reports = mutableListOf<String>()
+
+            for (i in 0 until array.length()) {
+                val subCmd = array.getString(i)
+                val subResult = parseAndExecuteLocalCommand(context, dbService, subCmd)
+                if (subResult.isHandled) {
+                    reports.add("⚡ ${subCmd}: ${subResult.responseMessage}")
+                } else {
+                    reports.add("⚡ ${subCmd}: Executed action")
+                }
+            }
+
+            val fullReport = "Executed Custom Routine \"${triggerName.uppercase()}\":\n\n" + reports.joinToString("\n")
+            UtilityResult(true, fullReport, "ROUTINE_CHAIN")
+        } catch (e: Exception) {
+            UtilityResult(true, "Error running routine: ${e.localizedMessage}", "ROUTINE_ERROR")
+        }
     }
 }
