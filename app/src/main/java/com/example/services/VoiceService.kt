@@ -31,6 +31,10 @@ class VoiceService(private val context: Context) : TextToSpeech.OnInitListener {
         }
     }
 
+    fun setLocale(locale: Locale) {
+        tts?.language = locale
+    }
+
     fun speak(text: String, onComplete: (() -> Unit)? = null) {
         if (text.isBlank()) return
         stopListening()

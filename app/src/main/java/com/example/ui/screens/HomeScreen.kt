@@ -74,8 +74,23 @@ import com.example.ui.theme.VedraTextMuted
 import com.example.ui.theme.VedraTextPrimary
 import com.example.ui.theme.VedraTextSecondary
 
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.runtime.collectAsState
+import com.example.services.ExternalService
+import com.example.services.NotificationService
+import com.example.services.UtilityService
+
+import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.VolumeUp
+import com.example.services.DatabaseService
+import com.example.services.VoiceService
+import com.example.ui.components.CustomModal
+
 @Composable
 fun HomeScreen(
+    dbService: DatabaseService,
+    voiceService: VoiceService,
     onActivateVoice: () -> Unit,
     onNavigateTab: (Int) -> Unit,
     onExecuteQuickAction: (String) -> Unit,
@@ -87,6 +102,13 @@ fun HomeScreen(
     var weather by remember { mutableStateOf(WeatherInfo()) }
     var storage by remember { mutableStateOf(StorageDetails(1.25, 42.5, 64.0)) }
     var storageStatusMsg by remember { mutableStateOf<String?>(null) }
+    var isQrScannerOpen by remember { mutableStateOf(false) }
+    var scannedResult by remember { mutableStateOf<String?>(null) }
+
+    var isBriefingModalOpen by remember { mutableStateOf(false) }
+    var dailyBriefingText by remember { mutableStateOf("") }
+
+    val activeTimers = NotificationService.activeTimers.collectAsState().value
 
     fun refreshDashboardData() {
         battery = StorageWeatherService.getBatteryStatus(context)
@@ -178,7 +200,69 @@ fun HomeScreen(
 
         // Central Voice Orb Card
         item {
-            VoiceOrbCard(onActivateVoice = onActivateVoice)
+            VoiceOrbCard(
+                onActivateVoice = onActivateVoice,
+                onPlayBriefing = {
+                    dailyBriefingText = NotificationService.generateDailyBriefing(context, dbService)
+                    voiceService.speak(dailyBriefingText)
+                    isBriefingModalOpen = true
+                }
+            )
+        }
+
+        // Active Timers & Alarms
+        if (activeTimers.isNotEmpty()) {
+            item {
+                CustomCard(borderColor = VedraPurplePrimary) {
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Timer,
+                                    contentDescription = null,
+                                    tint = VedraPurplePrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Active Timers & Alarms",
+                                    color = VedraTextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(Spacing.small))
+                        activeTimers.forEach { timer ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = timer.title,
+                                    color = VedraTextSecondary,
+                                    fontSize = 13.sp
+                                )
+                                val mins = timer.remainingSeconds / 60
+                                val secs = timer.remainingSeconds % 60
+                                Text(
+                                    text = String.format("%02d:%02d", mins, secs),
+                                    color = VedraCyanAccent,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Weather Widget Card
@@ -354,11 +438,11 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.small)
             ) {
                 SuggestionCard(
-                    title = "Flashlight",
-                    subtitle = "Toggle light",
-                    color = VedraPurplePrimary,
+                    title = "Scan QR Code",
+                    subtitle = "Barcode & Camera",
+                    color = VedraCyanAccent,
                     modifier = Modifier.weight(1f),
-                    onClick = { onExecuteQuickAction("turn on flashlight") }
+                    onClick = { isQrScannerOpen = true }
                 )
                 SuggestionCard(
                     title = "Call Mom",
@@ -370,10 +454,118 @@ fun HomeScreen(
             }
         }
     }
+
+    // QR / Barcode Scanner Modal Component
+    CustomModal(
+        visible = isQrScannerOpen,
+        title = "QR & Barcode Scanner",
+        onDismissRequest = {
+            isQrScannerOpen = false
+            scannedResult = null
+        }
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(Spacing.medium)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(200.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.Black)
+                    .border(2.dp, VedraCyanAccent, RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.QrCodeScanner,
+                    contentDescription = "Scanner Frame",
+                    tint = VedraCyanAccent,
+                    modifier = Modifier.size(64.dp)
+                )
+            }
+
+            if (scannedResult == null) {
+                Text(
+                    text = "Point camera at QR code or Barcode",
+                    color = VedraTextSecondary,
+                    fontSize = 13.sp
+                )
+                CustomButton(
+                    text = "Simulate Scan Result",
+                    icon = Icons.Default.QrCodeScanner,
+                    onClick = {
+                        scannedResult = "https://vedra-assistant.ai/study/physics-notes-2026"
+                    },
+                    modifier = Modifier.height(36.dp)
+                )
+            } else {
+                CustomCard(borderColor = VedraOnlineGreen) {
+                    Column {
+                        Text(text = "Scanned Code Result:", color = VedraTextMuted, fontSize = 11.sp)
+                        Text(text = scannedResult!!, color = VedraTextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.small)) {
+                    CustomButton(
+                        text = "Copy Result",
+                        onClick = {
+                            UtilityService.writeToClipboard(context, scannedResult!!)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    CustomButton(
+                        text = "Open Web",
+                        onClick = {
+                            ExternalService.searchWeb(context, scannedResult!!)
+                        },
+                        isSecondary = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+
+    CustomModal(
+        visible = isBriefingModalOpen,
+        title = "VEDRA Daily Briefing",
+        onDismissRequest = { isBriefingModalOpen = false }
+    ) {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.medium)) {
+                Text(
+                    text = dailyBriefingText,
+                    color = VedraTextPrimary,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.small)
+                ) {
+                    CustomButton(
+                        text = "Replay Audio",
+                        icon = Icons.Default.VolumeUp,
+                        onClick = { voiceService.speak(dailyBriefingText) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    CustomButton(
+                        text = "Close",
+                        onClick = { isBriefingModalOpen = false },
+                        isSecondary = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
 }
 
 @Composable
-fun VoiceOrbCard(onActivateVoice: () -> Unit) {
+fun VoiceOrbCard(
+    onActivateVoice: () -> Unit,
+    onPlayBriefing: () -> Unit
+) {
     val infiniteTransition = rememberInfiniteTransition(label = "orb_pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 0.95f,
@@ -447,12 +639,25 @@ fun VoiceOrbCard(onActivateVoice: () -> Unit) {
 
             Spacer(modifier = Modifier.height(Spacing.small))
 
-            CustomButton(
-                text = "Start Listening",
-                icon = Icons.Default.Mic,
-                onClick = onActivateVoice,
-                modifier = Modifier.height(36.dp)
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.small),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CustomButton(
+                    text = "Start Listening",
+                    icon = Icons.Default.Mic,
+                    onClick = onActivateVoice,
+                    modifier = Modifier.height(36.dp)
+                )
+
+                CustomButton(
+                    text = "Daily Briefing",
+                    icon = Icons.Default.VolumeUp,
+                    onClick = onPlayBriefing,
+                    isSecondary = true,
+                    modifier = Modifier.height(36.dp)
+                )
+            }
         }
     }
 }

@@ -60,6 +60,9 @@ import com.example.ui.theme.VedraTextMuted
 import com.example.ui.theme.VedraTheme
 import kotlinx.coroutines.delay
 
+import com.example.services.BackgroundService
+import com.example.services.NotificationService
+
 class MainActivity : ComponentActivity() {
 
     private lateinit var dbService: DatabaseService
@@ -71,6 +74,9 @@ class MainActivity : ComponentActivity() {
 
         dbService = DatabaseService(this)
         voiceService = VoiceService(this)
+
+        NotificationService.createNotificationChannel(this)
+        BackgroundService.startBackgroundTasks(this, dbService)
 
         setContent {
             VedraTheme {
@@ -187,6 +193,8 @@ fun MainAppLayout(
         ) {
             when (activeTab) {
                 0 -> HomeScreen(
+                    dbService = dbService,
+                    voiceService = voiceService,
                     onActivateVoice = {
                         hasUserInteracted = true
                         isVoiceModeActive = true
@@ -237,6 +245,14 @@ fun MainAppLayout(
                         hasUserInteracted = true
                         isVoiceModeActive = false
                     }
+                )
+            } else {
+                com.example.ui.components.FloatingAssistantWidget(
+                    voiceService = voiceService,
+                    dbService = dbService,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = 24.dp, end = 16.dp)
                 )
             }
         }

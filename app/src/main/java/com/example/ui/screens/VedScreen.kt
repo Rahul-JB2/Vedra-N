@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.services.DatabaseService
 import com.example.services.GeminiService
+import com.example.services.PluginService
 import com.example.services.UtilityService
 import com.example.services.VoiceService
 import com.example.ui.components.CustomButton
@@ -71,6 +72,9 @@ import com.example.ui.theme.VedraTextMuted
 import com.example.ui.theme.VedraTextPrimary
 import com.example.ui.theme.VedraTextSecondary
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.runtime.collectAsState
+import com.example.services.OfflineService
 
 data class ChatMessage(
     val id: String = java.util.UUID.randomUUID().toString(),
@@ -92,6 +96,8 @@ fun VedScreen(
     var inputText by remember { mutableStateOf("") }
     var isVoiceInputActive by remember { mutableStateOf(false) }
     var isThinking by remember { mutableStateOf(false) }
+
+    val isOnline = OfflineService.isNetworkAvailable.collectAsState().value
 
     val messages = remember {
         mutableStateListOf(
@@ -115,8 +121,9 @@ fun VedScreen(
         hasMicPermission = isGranted
     }
 
-    // Request permission on mount
+    // Request permission on mount & start network monitor
     LaunchedEffect(Unit) {
+        OfflineService.startMonitoring(context)
         if (!hasMicPermission) {
             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
@@ -132,14 +139,27 @@ fun VedScreen(
         isThinking = true
 
         coroutineScope.launch {
-            // Check local utilities first (flashlight, clipboard, math, conversions, app launch)
-            val utilResult = UtilityService.parseAndExecuteLocalCommand(context, dbService, clean)
+            val matchedPlugin = dbService.getPluginByTrigger(clean)
 
-            val replyText = if (utilResult.isHandled) {
-                utilResult.responseMessage
+            val replyText = if (matchedPlugin != null) {
+                PluginService.executePlugin(matchedPlugin)
             } else {
-                // Query Gemini Service for intelligent AI response
-                GeminiService.generateResponse(clean)
+                // Check local utilities first (flashlight, clipboard, math, conversions, app launch, timers, alarms, offline cache)
+                val utilResult = UtilityService.parseAndExecuteLocalCommand(context, dbService, clean)
+
+                if (utilResult.isHandled) {
+                    utilResult.responseMessage
+                } else if (!isOnline) {
+                    // Network unavailable -> Query local SQLite cache
+                    val cached = dbService.searchCachedResponse(clean)
+                    cached ?: "Offline Mode: I couldn't find '$clean' in local memory or cached responses. Reconnect to internet for full Gemini AI features."
+                } else {
+                    // Query Gemini Service for intelligent AI response
+                    val geminiReply = GeminiService.generateResponse(clean)
+                    // Cache response for offline use
+                    dbService.saveCachedResponse(clean, geminiReply)
+                    geminiReply
+                }
             }
 
             isThinking = false
@@ -179,7 +199,11 @@ fun VedScreen(
                 Spacer(modifier = Modifier.width(Spacing.small))
                 Column {
                     Text(text = "VEDRA AI", color = VedraTextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text(text = "Online • Smart Assistant", color = VedraTextSecondary, fontSize = 11.sp)
+                    Text(
+                        text = if (isOnline) "Online • Smart Assistant" else "Offline • Local Response Engine",
+                        color = if (isOnline) VedraTextSecondary else Color(0xFFFFB74D),
+                        fontSize = 11.sp
+                    )
                 }
             }
 
@@ -205,6 +229,33 @@ fun VedScreen(
                     isSecondary = !isVoiceInputActive,
                     modifier = Modifier.height(36.dp)
                 )
+            }
+        }
+
+        // Offline Banner Card
+        if (!isOnline) {
+            CustomCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = Spacing.small),
+                containerColor = Color(0xFF2A1C10),
+                borderColor = Color(0xFFFF9800)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.WifiOff,
+                        contentDescription = "Offline Mode",
+                        tint = Color(0xFFFF9800),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.small))
+                    Text(
+                        text = "Offline Mode: Querying SQLite memory, routines & formula cache.",
+                        color = Color(0xFFFFCC80),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
         }
 

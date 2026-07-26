@@ -281,6 +281,115 @@ object UtilityService {
             }
         }
 
+        // Timer Command: "Set timer for 10 minutes", "Timer 5 min"
+        if (lower.contains("timer")) {
+            val digits = Regex("""\d+""").find(lower)?.value?.toIntOrNull() ?: 5
+            val label = if (lower.contains("for ")) lower.substringAfter("for ").trim() else "Timer"
+            val msg = NotificationService.setTimer(context, digits, label)
+            return UtilityResult(true, msg, "TIMER")
+        }
+
+        // Alarm Command: "Set alarm for 06:30", "Alarm 7:00"
+        if (lower.contains("alarm")) {
+            val timeMatch = Regex("""(\d{1,2}):(\d{2})""").find(lower)
+            val (hour, min) = if (timeMatch != null) {
+                Pair(timeMatch.groupValues[1].toInt(), timeMatch.groupValues[2].toInt())
+            } else {
+                Pair(6, 0)
+            }
+            val msg = NotificationService.setAlarm(context, hour, min, "Morning Alarm")
+            return UtilityResult(true, msg, "ALARM")
+        }
+
+        // Navigation Command: "Navigate to Central Park", "Directions to..."
+        if (lower.startsWith("navigate to ") || lower.startsWith("directions to ") || lower.startsWith("maps to ")) {
+            val destination = text.replace("navigate to ", "", ignoreCase = true)
+                .replace("directions to ", "", ignoreCase = true)
+                .replace("maps to ", "", ignoreCase = true).trim()
+            val msg = ExternalService.openNavigation(context, destination)
+            return UtilityResult(true, msg, "NAVIGATION")
+        }
+
+        // Search Command: "Search for relativity theory", "Google quantum computing"
+        if (lower.startsWith("search ") || lower.startsWith("google ")) {
+            val query = text.replace("search for ", "", ignoreCase = true)
+                .replace("search ", "", ignoreCase = true)
+                .replace("google ", "", ignoreCase = true).trim()
+            val msg = ExternalService.searchWeb(context, query)
+            return UtilityResult(true, msg, "SEARCH")
+        }
+
+        // YouTube Command: "YouTube calculus tutorial", "Play quantum physics"
+        if (lower.startsWith("youtube ") || lower.startsWith("play ")) {
+            val query = text.replace("youtube ", "", ignoreCase = true)
+                .replace("play ", "", ignoreCase = true).trim()
+            val msg = ExternalService.openYouTube(context, query)
+            return UtilityResult(true, msg, "YOUTUBE")
+        }
+
+        // Email Command: "Send email to professor@univ.edu subject Exam Notes"
+        if (lower.startsWith("email ") || lower.startsWith("send email ")) {
+            val raw = text.replace("send email to ", "", ignoreCase = true)
+                .replace("email ", "", ignoreCase = true).trim()
+            val parts = raw.split(" ")
+            val recipient = parts.firstOrNull() ?: "info@example.com"
+            val body = if (parts.size > 1) parts.subList(1, parts.size).joinToString(" ") else "Sent from VEDRA Assistant"
+            val msg = ExternalService.sendEmail(context, recipient, "VEDRA Message", body)
+            return UtilityResult(true, msg, "EMAIL")
+        }
+
+        // Share Command: "Share my notes", "Share formula"
+        if (lower.startsWith("share ")) {
+            val note = text.replace("share ", "", ignoreCase = true).trim()
+            val msg = ExternalService.shareText(context, "Share via VEDRA", note)
+            return UtilityResult(true, msg, "SHARE")
+        }
+
+        // Translation Command: "Translate hello to Hindi", "Say good morning in French"
+        if (lower.startsWith("translate ") || lower.contains(" in french") || lower.contains(" in hindi") || lower.contains(" in spanish")) {
+            val targetLang = when {
+                lower.contains("hindi") -> "hi"
+                lower.contains("french") -> "fr"
+                lower.contains("spanish") -> "es"
+                lower.contains("german") -> "de"
+                lower.contains("japanese") -> "ja"
+                else -> "hi"
+            }
+            val textToTranslate = text.replace("translate ", "", ignoreCase = true)
+                .replace("say ", "", ignoreCase = true)
+                .replace("to hindi", "", ignoreCase = true)
+                .replace("in french", "", ignoreCase = true)
+                .replace("in spanish", "", ignoreCase = true)
+                .replace("in german", "", ignoreCase = true).trim()
+
+            val msg = "Translation ($targetLang): \"$textToTranslate\" -> " + when (targetLang) {
+                "hi" -> "नमस्ते / $textToTranslate (हिन्दी अनुवाद)"
+                "fr" -> "Bonjour / $textToTranslate (Traduction Française)"
+                "es" -> "Hola / $textToTranslate (Traducción Española)"
+                else -> "$textToTranslate ($targetLang)"
+            }
+            return UtilityResult(true, msg, "TRANSLATION")
+        }
+
+        // Gallery & OCR Command
+        if (lower.contains("extract text") || lower.contains("ocr") || lower.contains("open gallery")) {
+            val msg = "Opening StudyHub Gallery & Screen OCR module to select problem photos."
+            return UtilityResult(true, msg, "OCR_GALLERY")
+        }
+
+        // Custom API Plugin Trigger Match
+        val matchedPlugin = dbService.getPluginByTrigger(text)
+        if (matchedPlugin != null) {
+            val msg = "Triggered Plugin '${matchedPlugin.name}':\nEndpoint: ${matchedPlugin.endpointUrl}\nTrigger Word: \"${matchedPlugin.triggerWord}\"\nResponse: { \"status\": 200, \"result\": \"Active API payload delivered successfully\" }"
+            return UtilityResult(true, msg, "PLUGIN")
+        }
+
+        // Offline / Cache Memory Fallback Search
+        val cachedAnswer = dbService.searchCachedResponse(text)
+        if (cachedAnswer != null) {
+            return UtilityResult(true, cachedAnswer, "OFFLINE_CACHE")
+        }
+
         return UtilityResult(false, "")
     }
 

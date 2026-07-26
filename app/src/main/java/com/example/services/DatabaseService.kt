@@ -48,11 +48,18 @@ data class Flashcard(
     val formula: String? = null
 )
 
+data class CachedResponse(
+    val id: Long = 0,
+    val queryKey: String,
+    val responseText: String,
+    val category: String = "general"
+)
+
 class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
     companion object {
         private const val DATABASE_NAME = "vedra_memory.db"
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 3
 
         const val TABLE_MAPPINGS = "app_mappings"
         const val TABLE_MEMORY = "user_memory"
@@ -60,6 +67,8 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
         const val TABLE_ROUTINES = "routines"
         const val TABLE_STUDY_TASKS = "study_tasks"
         const val TABLE_FLASHCARDS = "flashcards"
+        const val TABLE_CACHE = "cached_responses"
+        const val TABLE_PLUGINS = "custom_plugins"
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -116,12 +125,33 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
             )
         """.trimIndent())
 
+        db.execSQL("""
+            CREATE TABLE $TABLE_CACHE (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query_key TEXT NOT NULL UNIQUE,
+                response_text TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'general'
+            )
+        """.trimIndent())
+
+        db.execSQL("""
+            CREATE TABLE $TABLE_PLUGINS (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                endpoint_url TEXT NOT NULL,
+                headers_json TEXT NOT NULL DEFAULT '{}',
+                trigger_word TEXT NOT NULL UNIQUE
+            )
+        """.trimIndent())
+
         seedDefaultMappings(db)
         seedDefaultMemories(db)
         seedDefaultAliases(db)
         seedDefaultRoutines(db)
         seedDefaultStudyTasks(db)
         seedDefaultFlashcards(db)
+        seedDefaultCachedResponses(db)
+        seedDefaultPlugins(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -131,6 +161,8 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
         db.execSQL("DROP TABLE IF EXISTS $TABLE_ROUTINES")
         db.execSQL("DROP TABLE IF EXISTS $TABLE_STUDY_TASKS")
         db.execSQL("DROP TABLE IF EXISTS $TABLE_FLASHCARDS")
+        db.execSQL("DROP TABLE IF EXISTS $TABLE_CACHE")
+        db.execSQL("DROP TABLE IF EXISTS $TABLE_PLUGINS")
         onCreate(db)
     }
 
@@ -270,6 +302,88 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
         }
     }
 
+    private fun seedDefaultCachedResponses(db: SQLiteDatabase) {
+        val defaultResponses = listOf(
+            CachedResponse(queryKey = "formula", responseText = "Key Offline Formulas:\n• Newton's 2nd Law: F = m * a\n• Kinetic Energy: KE = 0.5 * m * v²\n• Einstein Mass-Energy: E = m * c²\n• Ohm's Law: V = I * R\n• Quadratic Formula: x = (-b ± √(b² - 4ac)) / 2a", category = "science"),
+            CachedResponse(queryKey = "who are you", responseText = "I am VEDRA, your offline-capable AI Voice Assistant and Study Companion.", category = "identity"),
+            CachedResponse(queryKey = "routine", responseText = "Local Routines available: 'good morning' (reads status) and 'study mode' (prepares flashcards & timer).", category = "routine"),
+            CachedResponse(queryKey = "help", responseText = "VEDRA Offline Capabilities:\n• App Launcher ('open whatsapp')\n• Flashlight ('flashlight on')\n• Quick Calculations ('5 + 12 * 3')\n• Timers & Alarms\n• Local Study Flashcards & Memory Lookup", category = "help")
+        )
+        for (item in defaultResponses) {
+            val values = ContentValues().apply {
+                put("query_key", item.queryKey.lowercase())
+                put("response_text", item.responseText)
+                put("category", item.category)
+            }
+            db.insertWithOnConflict(TABLE_CACHE, null, values, SQLiteDatabase.CONFLICT_IGNORE)
+        }
+    }
+
+    private fun seedDefaultPlugins(db: SQLiteDatabase) {
+        val plugins = listOf(
+            CustomPlugin(
+                name = "Weather Webhook API",
+                endpointUrl = "https://api.open-meteo.com/v1/forecast?latitude=28.6139&longitude=77.2090&current_weather=true",
+                headersJson = """{"Accept": "application/json"}""",
+                triggerWord = "weather webhook"
+            ),
+            CustomPlugin(
+                name = "IoT Lab Sensor",
+                endpointUrl = "https://example.com/api/v1/sensor/temperature",
+                headersJson = """{"Authorization": "Bearer token123"}""",
+                triggerWord = "iot sensor"
+            )
+        )
+        for (p in plugins) {
+            val values = ContentValues().apply {
+                put("name", p.name)
+                put("endpoint_url", p.endpointUrl)
+                put("headers_json", p.headersJson)
+                put("trigger_word", p.triggerWord.lowercase())
+            }
+            db.insertWithOnConflict(TABLE_PLUGINS, null, values, SQLiteDatabase.CONFLICT_IGNORE)
+        }
+    }
+
+    fun searchCachedResponse(query: String): String? {
+        val cleanQuery = query.lowercase().trim()
+        val db = readableDatabase
+        
+        // 1. Exact or LIKE match in cached_responses
+        db.rawQuery("SELECT response_text FROM $TABLE_CACHE WHERE LOWER(query_key) LIKE ? OR ? LIKE '%' || LOWER(query_key) || '%' LIMIT 1", arrayOf("%$cleanQuery%", cleanQuery)).use { cursor ->
+            if (cursor.moveToFirst()) {
+                return cursor.getString(0)
+            }
+        }
+
+        // 2. Check user_memory table
+        val memValue = getMemoryValue(cleanQuery)
+        if (memValue != null) {
+            return "From Memory ($cleanQuery): $memValue"
+        }
+
+        // 3. Check flashcards table for matching question/formula
+        db.rawQuery("SELECT question, answer, formula FROM $TABLE_FLASHCARDS WHERE LOWER(question) LIKE ? OR LOWER(topic) LIKE ? OR LOWER(subject) LIKE ? LIMIT 1", arrayOf("%$cleanQuery%", "%$cleanQuery%", "%$cleanQuery%")).use { cursor ->
+            if (cursor.moveToFirst()) {
+                val q = cursor.getString(0)
+                val a = cursor.getString(1)
+                val f = cursor.getString(2)
+                return "Flashcard [$q]:\n$a${if (!f.isNullOrEmpty()) "\nFormula: $f" else ""}"
+            }
+        }
+
+        return null
+    }
+
+    fun saveCachedResponse(queryKey: String, responseText: String, category: String = "general"): Boolean {
+        val cv = ContentValues().apply {
+            put("query_key", queryKey.lowercase().trim())
+            put("response_text", responseText)
+            put("category", category)
+        }
+        return writableDatabase.insertWithOnConflict(TABLE_CACHE, null, cv, SQLiteDatabase.CONFLICT_REPLACE) != -1L
+    }
+
     // --- MAPPINGS ---
     fun getAllMappings(): List<AppMapping> {
         val list = mutableListOf<AppMapping>()
@@ -352,6 +466,16 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
 
     fun deleteMemory(id: Long): Boolean {
         return writableDatabase.delete(TABLE_MEMORY, "id = ?", arrayOf(id.toString())) > 0
+    }
+
+    fun getMemoryValue(key: String): String? {
+        val db = readableDatabase
+        db.rawQuery("SELECT memory_value FROM $TABLE_MEMORY WHERE LOWER(memory_key) LIKE ? OR ? LIKE '%' || LOWER(memory_key) || '%' LIMIT 1", arrayOf("%${key.lowercase()}%", key.lowercase())).use { cursor ->
+            if (cursor.moveToFirst()) {
+                return cursor.getString(0)
+            }
+        }
+        return null
     }
 
     // --- ALIASES ---
@@ -522,6 +646,63 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
             put("formula", formula)
         }
         return writableDatabase.insert(TABLE_FLASHCARDS, null, cv) != -1L
+    }
+
+    // --- PLUGINS ---
+    fun getAllPlugins(): List<CustomPlugin> {
+        val list = mutableListOf<CustomPlugin>()
+        val db = readableDatabase
+        val cursor = db.query(TABLE_PLUGINS, null, null, null, null, null, "name ASC")
+        cursor.use {
+            val idIdx = it.getColumnIndexOrThrow("id")
+            val nameIdx = it.getColumnIndexOrThrow("name")
+            val urlIdx = it.getColumnIndexOrThrow("endpoint_url")
+            val headerIdx = it.getColumnIndexOrThrow("headers_json")
+            val triggerIdx = it.getColumnIndexOrThrow("trigger_word")
+            while (it.moveToNext()) {
+                list.add(
+                    CustomPlugin(
+                        id = it.getLong(idIdx),
+                        name = it.getString(nameIdx),
+                        endpointUrl = it.getString(urlIdx),
+                        headersJson = it.getString(headerIdx),
+                        triggerWord = it.getString(triggerIdx)
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun addPlugin(name: String, endpointUrl: String, headersJson: String, triggerWord: String): Boolean {
+        val cv = ContentValues().apply {
+            put("name", name)
+            put("endpoint_url", endpointUrl)
+            put("headers_json", if (headersJson.isBlank()) "{}" else headersJson)
+            put("trigger_word", triggerWord.lowercase().trim())
+        }
+        return writableDatabase.insertWithOnConflict(TABLE_PLUGINS, null, cv, SQLiteDatabase.CONFLICT_REPLACE) != -1L
+    }
+
+    fun deletePlugin(id: Long): Boolean {
+        return writableDatabase.delete(TABLE_PLUGINS, "id = ?", arrayOf(id.toString())) > 0
+    }
+
+    fun getPluginByTrigger(query: String): CustomPlugin? {
+        val clean = query.lowercase().trim()
+        val db = readableDatabase
+        db.rawQuery("SELECT id, name, endpoint_url, headers_json, trigger_word FROM $TABLE_PLUGINS WHERE LOWER(?) LIKE '%' || LOWER(trigger_word) || '%' OR LOWER(trigger_word) LIKE '%' || LOWER(?) || '%' LIMIT 1", arrayOf(clean, clean)).use {
+            if (it.moveToFirst()) {
+                return CustomPlugin(
+                    id = it.getLong(0),
+                    name = it.getString(1),
+                    endpointUrl = it.getString(2),
+                    headersJson = it.getString(3),
+                    triggerWord = it.getString(4)
+                )
+            }
+        }
+        return null
     }
 }
 

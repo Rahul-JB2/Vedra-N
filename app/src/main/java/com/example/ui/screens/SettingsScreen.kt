@@ -19,12 +19,14 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
@@ -45,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.services.CustomPlugin
 import com.example.services.CustomRoutine
 import com.example.services.DatabaseService
 import com.example.ui.components.CustomButton
@@ -63,29 +66,65 @@ import com.example.ui.theme.VedraTextPrimary
 import com.example.ui.theme.VedraTextSecondary
 import org.json.JSONArray
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import com.example.services.PermissionService
+import com.example.services.PermissionStatus
+import com.example.services.TranslationService
+
 @Composable
 fun SettingsScreen(
     dbService: DatabaseService,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var isVoiceSettingsModalOpen by remember { mutableStateOf(false) }
+    var isLanguageModalOpen by remember { mutableStateOf(false) }
+    var selectedLang by remember { mutableStateOf(TranslationService.getTargetLanguage()) }
     var speechSpeed by remember { mutableFloatStateOf(1.0f) }
     var wakeWordEnabled by remember { mutableStateOf(true) }
+    var floatingWidgetEnabled by remember { mutableStateOf(true) }
 
     // Task Chains / Routines State
     var isAddRoutineModalOpen by remember { mutableStateOf(false) }
     var routineTriggerInput by remember { mutableStateOf("") }
     var routineActionsInput by remember { mutableStateOf("") } // Comma separated actions
 
+    // Custom Webhook / API Plugins State
+    var isAddPluginModalOpen by remember { mutableStateOf(false) }
+    var pluginNameInput by remember { mutableStateOf("") }
+    var pluginUrlInput by remember { mutableStateOf("") }
+    var pluginHeadersInput by remember { mutableStateOf("") }
+    var pluginTriggerInput by remember { mutableStateOf("") }
+
     val routines = remember { mutableStateListOf<CustomRoutine>() }
+    val plugins = remember { mutableStateListOf<CustomPlugin>() }
+    var permissionsList by remember { mutableStateOf<List<PermissionStatus>>(emptyList()) }
+
+    val permLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        permissionsList = PermissionService.checkAllPermissions(context)
+    }
 
     fun refreshRoutines() {
         routines.clear()
         routines.addAll(dbService.getAllRoutines())
     }
 
+    fun refreshPlugins() {
+        plugins.clear()
+        plugins.addAll(dbService.getAllPlugins())
+    }
+
     LaunchedEffect(Unit) {
         refreshRoutines()
+        refreshPlugins()
+        permissionsList = PermissionService.checkAllPermissions(context)
     }
 
     LazyColumn(
@@ -221,12 +260,147 @@ fun SettingsScreen(
             }
         }
 
+        // CUSTOM API PLUGINS & WEBHOOKS SECTION
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "CUSTOM API PLUGINS & WEBHOOKS", color = VedraTextSecondary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                CustomButton(
+                    text = "Add Plugin",
+                    icon = Icons.Default.Add,
+                    onClick = {
+                        pluginNameInput = ""
+                        pluginUrlInput = ""
+                        pluginHeadersInput = ""
+                        pluginTriggerInput = ""
+                        isAddPluginModalOpen = true
+                    },
+                    modifier = Modifier.height(32.dp)
+                )
+            }
+        }
+
+        if (plugins.isEmpty()) {
+            item {
+                Text(text = "No custom API plugins installed.", color = VedraTextMuted, fontSize = 12.sp)
+            }
+        } else {
+            items(plugins, key = { it.id }) { plugin ->
+                CustomCard(borderColor = VedraPurplePrimary) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(imageVector = Icons.Default.Widgets, contentDescription = null, tint = VedraPurplePrimary)
+                            Spacer(modifier = Modifier.width(Spacing.medium))
+                            Column {
+                                Text(
+                                    text = plugin.name,
+                                    color = VedraTextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = "Trigger: \"${plugin.triggerWord}\"",
+                                    color = VedraPurpleSecondary,
+                                    fontSize = 11.sp
+                                )
+                                Text(
+                                    text = "URL: ${plugin.endpointUrl}",
+                                    color = VedraTextMuted,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = {
+                                dbService.deletePlugin(plugin.id)
+                                refreshPlugins()
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = VedraPinkAccent, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "UNIFIED DEVICE PERMISSIONS", color = VedraTextSecondary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                CustomButton(
+                    text = "Grant All",
+                    onClick = {
+                        val missing = PermissionService.REQUIRED_PERMISSIONS.map { it.first }.toTypedArray()
+                        permLauncher.launch(missing)
+                    },
+                    modifier = Modifier.height(28.dp),
+                    isSecondary = true
+                )
+            }
+        }
+
+        items(permissionsList) { perm ->
+            CustomCard(
+                borderColor = if (perm.isGranted) Color(0xFF2E7D32) else Color(0xFFC62828)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (perm.isGranted) Icons.Default.CheckCircle else Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = if (perm.isGranted) Color(0xFF81C784) else Color(0xFFE57373),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(Spacing.medium))
+                        Column {
+                            val shortName = perm.permissionName.substringAfterLast(".")
+                            Text(text = shortName, color = VedraTextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(text = perm.requiredForFeature, color = VedraTextMuted, fontSize = 11.sp)
+                        }
+                    }
+
+                    CustomButton(
+                        text = if (perm.isGranted) "Granted" else "Grant",
+                        onClick = {
+                            permLauncher.launch(arrayOf(perm.permissionName))
+                        },
+                        isSecondary = perm.isGranted,
+                        modifier = Modifier.height(30.dp)
+                    )
+                }
+            }
+        }
+
         item {
             Text(text = "GENERAL SETTINGS", color = VedraTextSecondary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
         }
 
         val generalSettings = listOf(
             Triple("Voice & Speech", "Voice model, wake word, speech speed", Icons.Default.Mic),
+            Triple("App Language", "Current: ${selectedLang.displayName}", Icons.Default.Language),
+            Triple("Floating Assistant", "Overlay widget on all screens", Icons.Default.Widgets),
             Triple("Appearance", "Dark theme, cyan accents, animations", Icons.Default.Palette),
             Triple("AI & Memory", "Model response style & recall window", Icons.Default.Psychology),
             Triple("Privacy & Security", "Data permissions & offline mode", Icons.Default.Security)
@@ -237,6 +411,8 @@ fun SettingsScreen(
                 onClick = {
                     if (title == "Voice & Speech") {
                         isVoiceSettingsModalOpen = true
+                    } else if (title == "App Language") {
+                        isLanguageModalOpen = true
                     }
                 }
             ) {
@@ -253,7 +429,18 @@ fun SettingsScreen(
                             Text(text = sub, color = VedraTextMuted, fontSize = 11.sp)
                         }
                     }
-                    Icon(imageVector = Icons.Default.ChevronRight, contentDescription = null, tint = VedraTextMuted)
+                    if (title == "Floating Assistant") {
+                        Switch(
+                            checked = floatingWidgetEnabled,
+                            onCheckedChange = { floatingWidgetEnabled = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = VedraTextPrimary,
+                                checkedTrackColor = VedraPurplePrimary
+                            )
+                        )
+                    } else {
+                        Icon(imageVector = Icons.Default.ChevronRight, contentDescription = null, tint = VedraTextMuted)
+                    }
                 }
             }
         }
@@ -336,6 +523,98 @@ fun SettingsScreen(
                         dbService.addOrUpdateRoutine(routineTriggerInput, jsonArr.toString())
                         refreshRoutines()
                         isAddRoutineModalOpen = false
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+
+    // Modal for Language Selector
+    CustomModal(
+        visible = isLanguageModalOpen,
+        title = "Select App Language",
+        onDismissRequest = { isLanguageModalOpen = false }
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
+            TranslationService.SUPPORTED_LANGUAGES.forEach { lang ->
+                val isSel = selectedLang.code == lang.code
+                CustomCard(
+                    onClick = {
+                        selectedLang = lang
+                        TranslationService.setTargetLanguage(lang.code)
+                        dbService.addOrUpdateMemory("pref_language", lang.code)
+                        isLanguageModalOpen = false
+                    },
+                    borderColor = if (isSel) VedraPurplePrimary else VedraBorder
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = lang.displayName,
+                            color = if (isSel) VedraCyanAccent else VedraTextPrimary,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 14.sp
+                        )
+                        Text(text = lang.code.uppercase(), color = VedraTextMuted, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+
+    // Modal for Custom API Plugin Integration
+    CustomModal(
+        visible = isAddPluginModalOpen,
+        title = "Define Custom Webhook / API",
+        onDismissRequest = { isAddPluginModalOpen = false }
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.medium)) {
+            Text(
+                text = "Connect VEDRA to external HTTP APIs & webhooks. Trigger custom fetches using voice or text words.",
+                color = VedraTextSecondary,
+                fontSize = 12.sp
+            )
+
+            CustomInput(
+                value = pluginNameInput,
+                onValueChange = { pluginNameInput = it },
+                placeholder = "Plugin Name (e.g., IoT Temperature Sensor)"
+            )
+
+            CustomInput(
+                value = pluginUrlInput,
+                onValueChange = { pluginUrlInput = it },
+                placeholder = "Endpoint URL (e.g., https://api.example.com/v1/status)"
+            )
+
+            CustomInput(
+                value = pluginTriggerInput,
+                onValueChange = { pluginTriggerInput = it },
+                placeholder = "Trigger Word (e.g., iot status)"
+            )
+
+            CustomInput(
+                value = pluginHeadersInput,
+                onValueChange = { pluginHeadersInput = it },
+                placeholder = "Headers JSON (e.g., {\"Authorization\": \"Bearer key\"})"
+            )
+
+            CustomButton(
+                text = "Save Plugin Integration",
+                onClick = {
+                    if (pluginNameInput.isNotBlank() && pluginUrlInput.isNotBlank() && pluginTriggerInput.isNotBlank()) {
+                        dbService.addPlugin(
+                            name = pluginNameInput,
+                            endpointUrl = pluginUrlInput,
+                            headersJson = pluginHeadersInput,
+                            triggerWord = pluginTriggerInput
+                        )
+                        refreshPlugins()
+                        isAddPluginModalOpen = false
                     }
                 },
                 modifier = Modifier.fillMaxWidth()

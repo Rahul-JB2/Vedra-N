@@ -135,6 +135,7 @@ fun CustomCard(
     onClick: (() -> Unit)? = null,
     cornerShape: RoundedCornerShape = RoundedCornerShape(Spacing.cardCorner),
     borderColor: Color = VedraBorder,
+    containerColor: Color = VedraSurface,
     testTag: String = "custom_card",
     content: @Composable () -> Unit
 ) {
@@ -145,7 +146,7 @@ fun CustomCard(
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
         shape = cornerShape,
         colors = CardDefaults.cardColors(
-            containerColor = VedraSurface
+            containerColor = containerColor
         ),
         border = androidx.compose.foundation.BorderStroke(1.dp, borderColor)
     ) {
@@ -166,6 +167,7 @@ fun CustomInput(
     placeholder: String = "Type a command...",
     leadingIcon: ImageVector? = null,
     trailingIcon: @Composable (() -> Unit)? = null,
+    singleLine: Boolean = true,
     onSend: (() -> Unit)? = null,
     testTag: String = "custom_input"
 ) {
@@ -203,7 +205,7 @@ fun CustomInput(
             unfocusedTextColor = VedraTextPrimary,
             cursorColor = VedraPurplePrimary
         ),
-        singleLine = true,
+        singleLine = singleLine,
         keyboardOptions = KeyboardOptions(
             imeAction = if (onSend != null) ImeAction.Send else ImeAction.Done
         ),

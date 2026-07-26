@@ -55,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.services.DatabaseService
+import com.example.services.ExternalService
 import com.example.services.Flashcard
 import com.example.services.StudyService
 import com.example.services.StudyTask
@@ -107,6 +108,7 @@ fun StudyHubScreen(
 
     var isAiAnalyzing by remember { mutableStateOf(false) }
     var aiSolutionResult by remember { mutableStateOf<String?>(null) }
+    var ocrExtractedText by remember { mutableStateOf("") }
 
     fun refreshData() {
         studyTasks.clear()
@@ -370,15 +372,30 @@ fun StudyHubScreen(
                                     modifier = Modifier.height(36.dp)
                                 )
 
-                                CustomButton(
-                                    text = "Next Card",
-                                    icon = Icons.Default.SwapHoriz,
-                                    onClick = {
-                                        isAnswerVisible = false
-                                        currentCardIndex++
-                                    },
-                                    modifier = Modifier.height(36.dp)
-                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.small)) {
+                                    CustomButton(
+                                        text = "Share",
+                                        onClick = {
+                                            ExternalService.shareText(
+                                                context,
+                                                "Share Flashcard",
+                                                "Q: ${card.question}\nA: ${card.answer}${if (card.formula != null) "\nFormula: ${card.formula}" else ""}"
+                                            )
+                                        },
+                                        isSecondary = true,
+                                        modifier = Modifier.height(36.dp)
+                                    )
+
+                                    CustomButton(
+                                        text = "Next Card",
+                                        icon = Icons.Default.SwapHoriz,
+                                        onClick = {
+                                            isAnswerVisible = false
+                                            currentCardIndex++
+                                        },
+                                        modifier = Modifier.height(36.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -451,9 +468,22 @@ fun StudyHubScreen(
                                 modifier = Modifier.height(36.dp)
                             )
 
+                            CustomButton(
+                                text = "Extract Text (OCR)",
+                                onClick = {
+                                    isAiAnalyzing = true
+                                    coroutineScope.launch {
+                                        ocrExtractedText = StudyService.performOcrExtraction(context, selectedImageUri)
+                                        isAiAnalyzing = false
+                                    }
+                                },
+                                isSecondary = true,
+                                modifier = Modifier.height(36.dp)
+                            )
+
                             if (selectedImageUri != null) {
                                 CustomButton(
-                                    text = "Solve with AI",
+                                    text = "Solve AI",
                                     icon = Icons.Default.AutoAwesome,
                                     onClick = {
                                         isAiAnalyzing = true
@@ -465,6 +495,17 @@ fun StudyHubScreen(
                                     modifier = Modifier.height(36.dp)
                                 )
                             }
+                        }
+
+                        if (ocrExtractedText.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(Spacing.small))
+                            Text(text = "Extracted OCR Text (Editable):", color = VedraTextMuted, fontSize = 11.sp)
+                            CustomInput(
+                                value = ocrExtractedText,
+                                onValueChange = { ocrExtractedText = it },
+                                placeholder = "Extracted text will appear here...",
+                                singleLine = false
+                            )
                         }
                     }
                 }
