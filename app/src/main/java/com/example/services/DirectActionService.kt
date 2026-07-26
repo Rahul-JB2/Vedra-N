@@ -1,0 +1,118 @@
+package com.example.services
+
+import android.content.Context
+import java.util.Locale
+
+object DirectActionService {
+
+    /**
+     * Intercepts app-opening commands directly.
+     * Returns true if an app-launch command was handled, allowing UI to bypass chat text response.
+     */
+    fun handleDirectAppLaunch(context: Context, dbService: DatabaseService, text: String): Boolean {
+        val lower = text.trim().lowercase(Locale.US)
+        if (lower.startsWith("open ") || lower.startsWith("launch ") || lower.startsWith("start ")) {
+            val appWord = text.replace("open ", "", ignoreCase = true)
+                .replace("launch ", "", ignoreCase = true)
+                .replace("start ", "", ignoreCase = true)
+                .trim()
+            if (appWord.isNotEmpty()) {
+                val resultMsg = AppLauncher.launchAppByCustomWord(context, dbService, appWord)
+                // If app launch succeeded or attempted package launch
+                return !resultMsg.contains("Could not find", ignoreCase = true)
+            }
+        }
+        return false
+    }
+
+    /**
+     * Handles direct voice-to-action handlers (Calls, SMS, Alarms, Timers, Notes, App Launcher)
+     * instantly without cloud roundtrips.
+     */
+    fun processDirectVoiceAction(context: Context, dbService: DatabaseService, text: String): UtilityResult? {
+        val lower = text.trim().lowercase(Locale.US)
+
+        // 1. App Launching Interceptor
+        if (lower.startsWith("open ") || lower.startsWith("launch ") || lower.startsWith("start ")) {
+            val appWord = text.replace("open ", "", ignoreCase = true)
+                .replace("launch ", "", ignoreCase = true)
+                .replace("start ", "", ignoreCase = true)
+                .trim()
+            if (appWord.isNotEmpty()) {
+                val launchMsg = AppLauncher.launchAppByCustomWord(context, dbService, appWord)
+                return UtilityResult(true, launchMsg, "APP_LAUNCH")
+            }
+        }
+
+        // 2. Calls & Contact Handling: "Call [Name]"
+        if (lower.startsWith("call ")) {
+            val target = text.substring(5).trim()
+            if (target.isNotEmpty()) {
+                val resolvedTarget = dbService.resolveAlias(target) ?: target
+                val contactInfo = ContactsService.findContactByName(context, resolvedTarget)
+                val phone = contactInfo?.phoneNumber ?: resolvedTarget
+                val msg = ContactsService.makeCall(context, phone)
+                return UtilityResult(true, msg, "CALL")
+            }
+        }
+
+        // 3. SMS & Text Handling: "Text [Name] [Message]", "Send SMS to [Name] [Message]"
+        if (lower.startsWith("text ") || lower.startsWith("send sms ") || lower.startsWith("sms ")) {
+            val raw = text.replace("send sms to ", "", ignoreCase = true)
+                .replace("send sms ", "", ignoreCase = true)
+                .replace("text ", "", ignoreCase = true)
+                .replace("sms ", "", ignoreCase = true)
+                .trim()
+            val spaceIdx = raw.indexOf(' ')
+            if (spaceIdx > 0) {
+                val targetName = raw.substring(0, spaceIdx).trim()
+                val smsMsg = raw.substring(spaceIdx + 1).trim()
+                val resolvedTarget = dbService.resolveAlias(targetName) ?: targetName
+                val contactInfo = ContactsService.findContactByName(context, resolvedTarget)
+                val phone = contactInfo?.phoneNumber ?: resolvedTarget
+                val msg = ContactsService.sendSMS(context, phone, smsMsg)
+                return UtilityResult(true, msg, "SMS")
+            }
+        }
+
+        // 4. Quick Voice Note Creation: "Take a note saying [Content]", "Create note [Title]"
+        if (lower.startsWith("take a note") || lower.startsWith("take note") || lower.startsWith("create note") || lower.startsWith("save note") || lower.startsWith("note down") || lower.startsWith("add note")) {
+            val content = text.replace("take a note saying ", "", ignoreCase = true)
+                .replace("take a note ", "", ignoreCase = true)
+                .replace("take note ", "", ignoreCase = true)
+                .replace("create note ", "", ignoreCase = true)
+                .replace("save note ", "", ignoreCase = true)
+                .replace("note down ", "", ignoreCase = true)
+                .replace("add note ", "", ignoreCase = true)
+                .trim()
+            if (content.isNotEmpty()) {
+                val words = content.split(" ").take(4).joinToString(" ")
+                val title = if (words.length < content.length) "$words..." else words
+                dbService.addNote(title, content)
+                return UtilityResult(true, "Note saved locally: \"$content\" 📝", "NOTE_SAVE")
+            }
+        }
+
+        // 5. Alarms & Timers
+        if (lower.contains("timer")) {
+            val digits = Regex("""\d+""").find(lower)?.value?.toIntOrNull() ?: 5
+            val label = if (lower.contains("for ")) lower.substringAfter("for ").trim() else "Voice Timer"
+            val msg = NotificationService.setTimer(context, digits, label)
+            return UtilityResult(true, msg, "TIMER")
+        }
+
+        if (lower.contains("alarm")) {
+            val timeMatch = Regex("""(\d{1,2}):(\d{2})""").find(lower)
+            val (hour, min) = if (timeMatch != null) {
+                Pair(timeMatch.groupValues[1].toInt(), timeMatch.groupValues[2].toInt())
+            } else {
+                Pair(7, 0)
+            }
+            val msg = NotificationService.setAlarm(context, hour, min, "Voice Alarm")
+            return UtilityResult(true, msg, "ALARM")
+        }
+
+        // Fallback to general offline intent parser
+        return OfflineIntentParser.tryParseAndExecute(context, dbService, text)
+    }
+}

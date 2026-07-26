@@ -62,11 +62,19 @@ data class NoteItem(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+data class StudyHabit(
+    val id: Long = 0,
+    val subject: String,
+    val durationMinutes: Int,
+    val dateString: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
     companion object {
         private const val DATABASE_NAME = "vedra_memory.db"
-        private const val DATABASE_VERSION = 5
+        private const val DATABASE_VERSION = 6
 
         const val TABLE_MAPPINGS = "app_mappings"
         const val TABLE_MEMORY = "user_memory"
@@ -77,6 +85,7 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
         const val TABLE_CACHE = "cached_responses"
         const val TABLE_PLUGINS = "custom_plugins"
         const val TABLE_NOTES = "notes"
+        const val TABLE_STUDY_HABITS = "study_habits"
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -172,6 +181,7 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
         db.execSQL("DROP TABLE IF EXISTS $TABLE_CACHE")
         db.execSQL("DROP TABLE IF EXISTS $TABLE_PLUGINS")
         db.execSQL("DROP TABLE IF EXISTS $TABLE_NOTES")
+        db.execSQL("DROP TABLE IF EXISTS $TABLE_STUDY_HABITS")
         onCreate(db)
     }
 
@@ -191,6 +201,15 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
                 content TEXT NOT NULL,
+                timestamp INTEGER NOT NULL
+            )
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS $TABLE_STUDY_HABITS (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subject TEXT NOT NULL,
+                duration_minutes INTEGER NOT NULL,
+                date_string TEXT NOT NULL,
                 timestamp INTEGER NOT NULL
             )
         """.trimIndent())
@@ -751,6 +770,24 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
         return sb.toString().trim()
     }
 
+    fun getAllCachedResponses(): List<CachedResponse> {
+        val list = mutableListOf<CachedResponse>()
+        val db = readableDatabase
+        db.rawQuery("SELECT id, queryKey, responseText, category FROM $TABLE_CACHE", null).use {
+            while (it.moveToNext()) {
+                list.add(
+                    CachedResponse(
+                        id = it.getLong(0),
+                        queryKey = it.getString(1),
+                        responseText = it.getString(2),
+                        category = it.getString(3)
+                    )
+                )
+            }
+        }
+        return list
+    }
+
     // NOTES CRUD OPERATIONS
     fun addNote(title: String, content: String): Long {
         val cv = ContentValues().apply {
@@ -796,6 +833,154 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
             }
         }
         return null
+    }
+
+    // STUDY HABIT OPERATIONS
+    fun logStudyHabit(subject: String, durationMinutes: Int): Long {
+        val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        val cv = ContentValues().apply {
+            put("subject", subject)
+            put("duration_minutes", durationMinutes)
+            put("date_string", todayStr)
+            put("timestamp", System.currentTimeMillis())
+        }
+        return writableDatabase.insert(TABLE_STUDY_HABITS, null, cv)
+    }
+
+    fun getAllStudyHabits(): List<StudyHabit> {
+        val list = mutableListOf<StudyHabit>()
+        val db = readableDatabase
+        db.rawQuery("SELECT id, subject, duration_minutes, date_string, timestamp FROM $TABLE_STUDY_HABITS ORDER BY id DESC", null).use {
+            while (it.moveToNext()) {
+                list.add(
+                    StudyHabit(
+                        id = it.getLong(0),
+                        subject = it.getString(1),
+                        durationMinutes = it.getInt(2),
+                        dateString = it.getString(3),
+                        timestamp = it.getLong(4)
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun deleteStudyHabit(id: Long): Boolean {
+        return writableDatabase.delete(TABLE_STUDY_HABITS, "id = ?", arrayOf(id.toString())) > 0
+    }
+
+    fun calculateStudyStreak(): Int {
+        val db = readableDatabase
+        val dateList = mutableListOf<String>()
+        db.rawQuery("SELECT DISTINCT date_string FROM $TABLE_STUDY_HABITS ORDER BY date_string DESC", null).use {
+            while (it.moveToNext()) {
+                dateList.add(it.getString(0))
+            }
+        }
+        if (dateList.isEmpty()) return 0
+
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val todayStr = sdf.format(java.util.Date())
+        val cal = java.util.Calendar.getInstance()
+        
+        var streak = 0
+        var checkCal = java.util.Calendar.getInstance()
+
+        // Check if today or yesterday has an entry
+        val hasToday = dateList.contains(todayStr)
+        cal.add(java.util.Calendar.DAY_OF_YEAR, -1)
+        val yesterdayStr = sdf.format(cal.time)
+        val hasYesterday = dateList.contains(yesterdayStr)
+
+        if (!hasToday && !hasYesterday) return 0
+
+        var currentCheckDate = if (hasToday) todayStr else yesterdayStr
+        checkCal.time = sdf.parse(currentCheckDate) ?: java.util.Date()
+
+        while (dateList.contains(sdf.format(checkCal.time))) {
+            streak++
+            checkCal.add(java.util.Calendar.DAY_OF_YEAR, -1)
+        }
+        return streak
+    }
+
+    fun getTotalStudyMinutesThisWeek(): Int {
+        val cal = java.util.Calendar.getInstance()
+        cal.add(java.util.Calendar.DAY_OF_YEAR, -7)
+        val weekAgoTimestamp = cal.timeInMillis
+
+        val db = readableDatabase
+        db.rawQuery("SELECT SUM(duration_minutes) FROM $TABLE_STUDY_HABITS WHERE timestamp >= ?", arrayOf(weekAgoTimestamp.toString())).use {
+            if (it.moveToFirst()) {
+                return it.getInt(0)
+            }
+        }
+        return 0
+    }
+
+    // OFFLINE LOCAL SEARCH ENGINE
+    fun searchOfflineContent(query: String): String? {
+        val clean = query.trim().lowercase()
+        if (clean.isBlank()) return null
+
+        val tokens = clean.split(" ").filter { it.length > 2 }
+        if (tokens.isEmpty()) return null
+
+        // 1. Search Notes
+        val notes = getAllNotes()
+        for (note in notes) {
+            val titleLow = note.title.lowercase()
+            val contentLow = note.content.lowercase()
+            if (tokens.any { titleLow.contains(it) || contentLow.contains(it) }) {
+                return "🔍 [Local Note Match]\nTitle: ${note.title}\nContent: ${note.content}"
+            }
+        }
+
+        // 2. Search Flashcards
+        val flashcards = getAllFlashcards()
+        for (fc in flashcards) {
+            val qLow = fc.question.lowercase()
+            val aLow = fc.answer.lowercase()
+            if (tokens.any { qLow.contains(it) || aLow.contains(it) }) {
+                return "📚 [Local Flashcard Match]\nSubject: ${fc.subject}\nQ: ${fc.question}\nA: ${fc.answer}"
+            }
+        }
+
+        // 3. Search User Memories / Profile
+        val memories = getAllMemories()
+        for (mem in memories) {
+            val kLow = mem.memoryKey.lowercase()
+            val vLow = mem.memoryValue.lowercase()
+            if (tokens.any { kLow.contains(it) || vLow.contains(it) }) {
+                return "🧠 [Local Profile Match]\n${mem.memoryKey}: ${mem.memoryValue}"
+            }
+        }
+
+        // 4. Search App Mappings
+        val mappings = getAllMappings()
+        for (m in mappings) {
+            val wLow = m.customWord.lowercase()
+            if (tokens.any { wLow.contains(it) }) {
+                return "📱 [Local App Shortcut Match]\nWord: '${m.customWord}' maps to package '${m.appIdentifier}'"
+            }
+        }
+
+        return null
+    }
+
+    // STORAGE SYNC STATS
+    fun getOfflineStorageStats(): Map<String, Int> {
+        val stats = mutableMapOf<String, Int>()
+        stats["Notes"] = getAllNotes().size
+        stats["Flashcards"] = getAllFlashcards().size
+        stats["Study Habits"] = getAllStudyHabits().size
+        stats["User Memories"] = getAllMemories().size
+        stats["Contact Aliases"] = getAllAliases().size
+        stats["App Shortcuts"] = getAllMappings().size
+        stats["Routines"] = getAllRoutines().size
+        stats["Cached Responses"] = getAllCachedResponses().size
+        return stats
     }
 }
 

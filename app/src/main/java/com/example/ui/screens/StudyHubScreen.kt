@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MenuBook
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import com.example.services.DatabaseService
 import com.example.services.ExternalService
 import com.example.services.Flashcard
+import com.example.services.StudyHabit
 import com.example.services.StudyService
 import com.example.services.StudyTask
 import com.example.ui.components.CustomButton
@@ -91,6 +93,15 @@ fun StudyHubScreen(
 
     val studyTasks = remember { mutableStateListOf<StudyTask>() }
     val flashcards = remember { mutableStateListOf<Flashcard>() }
+    val studyHabits = remember { mutableStateListOf<StudyHabit>() }
+
+    var streakCount by remember { mutableIntStateOf(0) }
+    var weeklyMinutes by remember { mutableIntStateOf(0) }
+
+    // Habit Modal State
+    var isAddHabitModalOpen by remember { mutableStateOf(false) }
+    var inputHabitSubject by remember { mutableStateOf("") }
+    var inputHabitMinutes by remember { mutableStateOf("") }
 
     // Flashcard Flip State
     var currentCardIndex by remember { mutableIntStateOf(0) }
@@ -116,6 +127,12 @@ fun StudyHubScreen(
 
         flashcards.clear()
         flashcards.addAll(dbService.getAllFlashcards())
+
+        studyHabits.clear()
+        studyHabits.addAll(dbService.getAllStudyHabits())
+
+        streakCount = dbService.calculateStudyStreak()
+        weeklyMinutes = dbService.getTotalStudyMinutesThisWeek()
     }
 
     LaunchedEffect(Unit) {
@@ -181,7 +198,7 @@ fun StudyHubScreen(
                     .padding(4.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                val tabs = listOf("Planner", "Flashcards", "Image & PDF Q&A")
+                val tabs = listOf("Planner", "Flashcards", "Image & PDF", "Habits")
                 tabs.forEachIndexed { idx, tabName ->
                     val isSelected = activeSubTab == idx
                     Box(
@@ -605,6 +622,146 @@ fun StudyHubScreen(
                     }
                 }
             }
+        }
+
+        // SUB-TAB 3: HABIT TRACKER & STREAK ENGINE
+        if (activeSubTab == 3) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.medium)
+                ) {
+                    CustomCard(
+                        borderColor = VedraPinkAccent,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(text = "DAILY STREAK", color = VedraPinkAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = "🔥 $streakCount Days", color = VedraTextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    val totalHours = weeklyMinutes / 60
+                    val totalMinsRem = weeklyMinutes % 60
+                    CustomCard(
+                        borderColor = VedraCyanAccent,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(text = "THIS WEEK", color = VedraCyanAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = "⏱️ ${totalHours}h ${totalMinsRem}m", color = VedraTextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "STUDY LOGS & HABITS",
+                        color = VedraTextSecondary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                    CustomButton(
+                        text = "Log Study",
+                        icon = Icons.Default.Add,
+                        onClick = {
+                            inputHabitSubject = ""
+                            inputHabitMinutes = ""
+                            isAddHabitModalOpen = true
+                        },
+                        modifier = Modifier.height(34.dp)
+                    )
+                }
+            }
+
+            if (studyHabits.isEmpty()) {
+                item {
+                    Text(
+                        text = "No study logs recorded yet. Say \"Log 2 hours of Physics study\" or tap Log Study.",
+                        color = VedraTextMuted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(vertical = Spacing.medium)
+                    )
+                }
+            } else {
+                items(studyHabits, key = { it.id }) { habit ->
+                    CustomCard(borderColor = VedraPurpleSecondary) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = habit.subject,
+                                    color = VedraTextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Duration: ${habit.durationMinutes} mins  •  Date: ${habit.dateString}",
+                                    color = VedraTextSecondary,
+                                    fontSize = 12.sp
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    dbService.deleteStudyHabit(habit.id)
+                                    refreshData()
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete Habit Log",
+                                    tint = VedraPinkAccent,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Modal for Logging Study Habit
+    CustomModal(
+        visible = isAddHabitModalOpen,
+        title = "Log Study Session",
+        onDismissRequest = { isAddHabitModalOpen = false }
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.medium)) {
+            CustomInput(
+                value = inputHabitSubject,
+                onValueChange = { inputHabitSubject = it },
+                placeholder = "Subject (e.g. Physics, Mechanics, Chemistry)"
+            )
+            CustomInput(
+                value = inputHabitMinutes,
+                onValueChange = { inputHabitMinutes = it },
+                placeholder = "Duration in minutes (e.g. 120)"
+            )
+            CustomButton(
+                text = "Log Session",
+                onClick = {
+                    val mins = inputHabitMinutes.toIntOrNull() ?: 60
+                    if (inputHabitSubject.isNotBlank()) {
+                        dbService.logStudyHabit(inputHabitSubject, mins)
+                        refreshData()
+                        isAddHabitModalOpen = false
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 

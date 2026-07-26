@@ -192,6 +192,72 @@ fun SettingsScreen(
             }
         }
 
+        // OFFLINE STORAGE & SYNC STATUS CARD
+        item {
+            val stats = dbService.getOfflineStorageStats()
+            val totalSaved = stats.values.sum()
+
+            CustomCard(borderColor = VedraCyanAccent) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = Color(0xFF81C784),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "OFFLINE SYNC & STORAGE STATUS",
+                                color = VedraCyanAccent,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Text(
+                            text = "$totalSaved Records Saved",
+                            color = Color(0xFF81C784),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "All interactions, habits, study notes, and custom aliases are stored 100% locally on your device for full offline autonomy.",
+                        color = VedraTextSecondary,
+                        fontSize = 12.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        stats.entries.chunked(2).forEach { pair ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                pair.forEach { entry ->
+                                    Row(
+                                        modifier = Modifier.weight(1f),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(text = entry.key, color = VedraTextMuted, fontSize = 11.sp)
+                                        Text(text = entry.value.toString(), color = VedraTextPrimary, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // TASK CHAINS / ROUTINES SECTION
         item {
             Row(

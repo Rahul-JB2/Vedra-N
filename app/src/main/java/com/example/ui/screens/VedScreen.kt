@@ -53,7 +53,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.services.DatabaseService
+import com.example.services.DirectActionService
 import com.example.services.GeminiService
+import com.example.services.OfflineIntentParser
 import com.example.services.PluginService
 import com.example.services.UtilityService
 import com.example.services.VoiceService
@@ -134,6 +136,13 @@ fun VedScreen(
         val clean = msgText.trim()
         if (clean.isEmpty()) return
 
+        // Direct App Launch Interceptor: If it's an app opening command ("open whatsapp", "open instagram"),
+        // launch immediately without routing through chat interface or displaying response bubbles.
+        if (DirectActionService.handleDirectAppLaunch(context, dbService, clean)) {
+            inputText = ""
+            return
+        }
+
         inputText = ""
         messages.add(ChatMessage(sender = "USER", text = clean))
         
@@ -156,14 +165,14 @@ fun VedScreen(
             val replyText = if (matchedPlugin != null) {
                 PluginService.executePlugin(matchedPlugin)
             } else {
-                // Check local utilities first (flashlight, clipboard, math, conversions, app launch, timers, alarms, offline cache)
-                val utilResult = UtilityService.parseAndExecuteLocalCommand(context, dbService, clean)
+                // Direct Voice Action & Local NLP Parser (calls, sms, alarms, timers, notes, volume, flashlight, habits, etc.)
+                val directAction = DirectActionService.processDirectVoiceAction(context, dbService, clean)
 
-                if (utilResult.isHandled) {
-                    utilResult.responseMessage
+                if (directAction != null && directAction.isHandled) {
+                    directAction.responseMessage
                 } else if (!isOnline) {
-                    // Network unavailable -> Query local SQLite cache
-                    val cached = dbService.searchCachedResponse(clean)
+                    // Network unavailable -> Query local SQLite cache or local search
+                    val cached = dbService.searchCachedResponse(clean) ?: dbService.searchOfflineContent(clean)
                     cached ?: "Offline Mode: I couldn't find '$clean' in local memory or cached responses. Reconnect to internet for full Gemini AI features."
                 } else {
                     // Inject user profile memory & aliases context into Gemini
