@@ -1,0 +1,6 @@
+{
+  "name": "VEDRA",
+  "description": "VEDRA (VED) - Personal AI Assistant with Voice Mode, Custom Commands, App Launcher, and Smart Utilities",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
