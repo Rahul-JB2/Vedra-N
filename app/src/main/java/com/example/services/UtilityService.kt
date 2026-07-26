@@ -3,7 +3,11 @@ package com.example.services
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.hardware.camera2.CameraManager
+import android.media.AudioManager
+import android.net.Uri
+import java.net.URLEncoder
 import java.util.Locale
 import kotlin.math.pow
 import org.json.JSONArray
@@ -63,6 +67,66 @@ object UtilityService {
             }
         } catch (e: Exception) {
             "Failed to read clipboard: ${e.localizedMessage}"
+        }
+    }
+
+    fun setVolumeLevel(context: Context, percentage: Int): String {
+        return try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            val targetVol = (maxVol * (percentage.coerceIn(0, 100) / 100.0)).toInt()
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVol, AudioManager.FLAG_SHOW_UI)
+            "Volume set to $percentage% 🔊"
+        } catch (e: Exception) {
+            "Failed to set volume: ${e.localizedMessage}"
+        }
+    }
+
+    fun adjustVolume(context: Context, isUp: Boolean): String {
+        return try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val flag = if (isUp) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, flag, AudioManager.FLAG_SHOW_UI)
+            if (isUp) "Volume increased 🔊" else "Volume decreased 🔉"
+        } catch (e: Exception) {
+            "Failed to adjust volume: ${e.localizedMessage}"
+        }
+    }
+
+    fun muteVolume(context: Context, mute: Boolean): String {
+        return try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            if (mute) {
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, AudioManager.FLAG_SHOW_UI)
+                "Audio muted 🔇"
+            } else {
+                val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol / 2, AudioManager.FLAG_SHOW_UI)
+                "Audio unmuted 🔊"
+            }
+        } catch (e: Exception) {
+            "Failed to toggle mute: ${e.localizedMessage}"
+        }
+    }
+
+    fun openMusicOrSpotify(context: Context, query: String = ""): String {
+        return try {
+            val intent = if (query.isNotBlank()) {
+                val encoded = URLEncoder.encode(query, "UTF-8")
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com/search/$encoded")).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+            } else {
+                val launchIntent = context.packageManager.getLaunchIntentForPackage("com.spotify.music")
+                    ?: Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com")).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                launchIntent
+            }
+            context.startActivity(intent)
+            if (query.isNotBlank()) "Playing '$query' on Spotify 🎵" else "Opening Music app 🎵"
+        } catch (e: Exception) {
+            "Failed to launch music: ${e.localizedMessage}"
         }
     }
 
@@ -162,6 +226,72 @@ object UtilityService {
         if (lower.contains("turn off flashlight") || lower == "flashlight off") {
             val msg = toggleFlashlight(context, false)
             return UtilityResult(true, msg, "FLASHLIGHT")
+        }
+
+        // Volume Control & Mute
+        if (lower.contains("volume") || lower.contains("mute")) {
+            if (lower.contains("mute") && !lower.contains("unmute")) {
+                val msg = muteVolume(context, true)
+                return UtilityResult(true, msg, "VOLUME")
+            }
+            if (lower.contains("unmute")) {
+                val msg = muteVolume(context, false)
+                return UtilityResult(true, msg, "VOLUME")
+            }
+            if (lower.contains("up") || lower.contains("increase") || lower.contains("higher")) {
+                val msg = adjustVolume(context, true)
+                return UtilityResult(true, msg, "VOLUME")
+            }
+            if (lower.contains("down") || lower.contains("decrease") || lower.contains("lower")) {
+                val msg = adjustVolume(context, false)
+                return UtilityResult(true, msg, "VOLUME")
+            }
+            val digits = Regex("""\d+""").find(lower)?.value?.toIntOrNull()
+            if (digits != null) {
+                val msg = setVolumeLevel(context, digits)
+                return UtilityResult(true, msg, "VOLUME")
+            }
+        }
+
+        // Music & Spotify Control
+        if (lower.startsWith("play music") || lower.startsWith("play spotify") || lower.startsWith("play ") || lower == "spotify" || lower == "music") {
+            if (!lower.contains("video") && !lower.contains("youtube")) {
+                val searchQuery = text.replace("play spotify", "", ignoreCase = true)
+                    .replace("play music", "", ignoreCase = true)
+                    .replace("play on spotify", "", ignoreCase = true)
+                    .replace("play", "", ignoreCase = true)
+                    .trim()
+                val msg = openMusicOrSpotify(context, searchQuery)
+                return UtilityResult(true, msg, "MUSIC")
+            }
+        }
+
+        // Notes & Voice Notes Commands
+        if (lower.startsWith("take a note") || lower.startsWith("take note") || lower.startsWith("create note") || lower.startsWith("save note") || lower.startsWith("note down") || lower.startsWith("add note")) {
+            val content = text.replace("take a note saying ", "", ignoreCase = true)
+                .replace("take a note ", "", ignoreCase = true)
+                .replace("take note ", "", ignoreCase = true)
+                .replace("create note ", "", ignoreCase = true)
+                .replace("save note ", "", ignoreCase = true)
+                .replace("note down ", "", ignoreCase = true)
+                .replace("add note ", "", ignoreCase = true)
+                .trim()
+            if (content.isNotBlank()) {
+                val titleWords = content.split(" ").take(4).joinToString(" ")
+                val title = if (titleWords.length < content.length) "$titleWords..." else titleWords
+                dbService.addNote(title, content)
+                return UtilityResult(true, "Note saved: \"$content\" 📝", "NOTE_SAVE")
+            }
+        }
+
+        if (lower.contains("read my last note") || lower.contains("read last note") || lower.contains("get last note") || lower == "last note") {
+            val lastNote = dbService.getLastNote()
+            val msg = if (lastNote != null) {
+                "Your last note (\"${lastNote.title}\"): \"${lastNote.content}\" 📝"
+            } else {
+                "No notes found in database."
+            }
+            return UtilityResult(true, msg, "NOTE_READ")
         }
 
         // Battery / Weather / Storage Commands

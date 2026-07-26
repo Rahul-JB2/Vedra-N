@@ -55,11 +55,18 @@ data class CachedResponse(
     val category: String = "general"
 )
 
+data class NoteItem(
+    val id: Long = 0,
+    val title: String,
+    val content: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
     companion object {
         private const val DATABASE_NAME = "vedra_memory.db"
-        private const val DATABASE_VERSION = 3
+        private const val DATABASE_VERSION = 5
 
         const val TABLE_MAPPINGS = "app_mappings"
         const val TABLE_MEMORY = "user_memory"
@@ -69,6 +76,7 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
         const val TABLE_FLASHCARDS = "flashcards"
         const val TABLE_CACHE = "cached_responses"
         const val TABLE_PLUGINS = "custom_plugins"
+        const val TABLE_NOTES = "notes"
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -163,7 +171,30 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
         db.execSQL("DROP TABLE IF EXISTS $TABLE_FLASHCARDS")
         db.execSQL("DROP TABLE IF EXISTS $TABLE_CACHE")
         db.execSQL("DROP TABLE IF EXISTS $TABLE_PLUGINS")
+        db.execSQL("DROP TABLE IF EXISTS $TABLE_NOTES")
         onCreate(db)
+    }
+
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS $TABLE_PLUGINS (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                endpoint_url TEXT NOT NULL,
+                headers_json TEXT NOT NULL DEFAULT '{}',
+                trigger_word TEXT NOT NULL UNIQUE
+            )
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS $TABLE_NOTES (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp INTEGER NOT NULL
+            )
+        """.trimIndent())
+        seedDefaultPlugins(db)
     }
 
     private fun seedDefaultMappings(db: SQLiteDatabase) {
@@ -699,6 +730,68 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
                     endpointUrl = it.getString(2),
                     headersJson = it.getString(3),
                     triggerWord = it.getString(4)
+                )
+            }
+        }
+        return null
+    }
+
+    fun getUserContextSummary(): String {
+        val memories = getAllMemories()
+        val aliases = getAllAliases()
+        val sb = StringBuilder()
+        if (memories.isNotEmpty()) {
+            sb.append("User Saved Profile & Memory:\n")
+            memories.forEach { sb.append("- ${it.memoryKey}: ${it.memoryValue}\n") }
+        }
+        if (aliases.isNotEmpty()) {
+            sb.append("User Contacts & Aliases:\n")
+            aliases.forEach { sb.append("- ${it.aliasName}: ${it.targetContactOrNumber}\n") }
+        }
+        return sb.toString().trim()
+    }
+
+    // NOTES CRUD OPERATIONS
+    fun addNote(title: String, content: String): Long {
+        val cv = ContentValues().apply {
+            put("title", title)
+            put("content", content)
+            put("timestamp", System.currentTimeMillis())
+        }
+        return writableDatabase.insert(TABLE_NOTES, null, cv)
+    }
+
+    fun getAllNotes(): List<NoteItem> {
+        val list = mutableListOf<NoteItem>()
+        val db = readableDatabase
+        db.rawQuery("SELECT id, title, content, timestamp FROM $TABLE_NOTES ORDER BY id DESC", null).use {
+            while (it.moveToNext()) {
+                list.add(
+                    NoteItem(
+                        id = it.getLong(0),
+                        title = it.getString(1),
+                        content = it.getString(2),
+                        timestamp = it.getLong(3)
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun deleteNote(id: Long): Boolean {
+        return writableDatabase.delete(TABLE_NOTES, "id = ?", arrayOf(id.toString())) > 0
+    }
+
+    fun getLastNote(): NoteItem? {
+        val db = readableDatabase
+        db.rawQuery("SELECT id, title, content, timestamp FROM $TABLE_NOTES ORDER BY id DESC LIMIT 1", null).use {
+            if (it.moveToFirst()) {
+                return NoteItem(
+                    id = it.getLong(0),
+                    title = it.getString(1),
+                    content = it.getString(2),
+                    timestamp = it.getLong(3)
                 )
             }
         }

@@ -18,18 +18,28 @@ object GeminiService {
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
-    suspend fun generateResponse(prompt: String): String = withContext(Dispatchers.IO) {
+    suspend fun generateResponse(prompt: String, contextSummary: String = ""): String = withContext(Dispatchers.IO) {
         val apiKey = try { BuildConfig::class.java.getField("GEMINI_API_KEY").get(null) as? String } catch (e: Exception) { null }
 
         if (!apiKey.isNullOrBlank() && apiKey != "MY_GEMINI_API_KEY") {
             try {
                 val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey"
+                
+                val systemPrompt = StringBuilder()
+                systemPrompt.append("You are VEDRA (VED), an intelligent, friendly AI assistant. Answer concisely and accurately.\n")
+                if (contextSummary.isNotBlank()) {
+                    systemPrompt.append("\n[USER CONTEXT MEMORY & PROFILE]\n")
+                    systemPrompt.append(contextSummary)
+                    systemPrompt.append("\n[END USER CONTEXT]\n")
+                }
+                systemPrompt.append("\nUser query: $prompt")
+
                 val jsonBody = JSONObject().apply {
                     put("contents", JSONArray().apply {
                         put(JSONObject().apply {
                             put("parts", JSONArray().apply {
                                 put(JSONObject().apply {
-                                    put("text", "You are VEDRA (VED), a smart AI assistant. Answer concisely and clearly.\nUser query: $prompt")
+                                    put("text", systemPrompt.toString())
                                 })
                             })
                         })
@@ -64,18 +74,20 @@ object GeminiService {
         }
 
         // Offline / fallback response engine for VEDRA
-        return@withContext generateFallbackResponse(prompt)
+        return@withContext generateFallbackResponse(prompt, contextSummary)
     }
 
-    private fun generateFallbackResponse(prompt: String): String {
+    private fun generateFallbackResponse(prompt: String, contextSummary: String = ""): String {
         val lower = prompt.lowercase()
         return when {
+            contextSummary.isNotBlank() && (lower.contains("who am i") || lower.contains("my name") || lower.contains("my profile") || lower.contains("my memory")) ->
+                "Here is your saved profile context in memory:\n$contextSummary"
             lower.contains("photosynthesis") ->
                 "Photosynthesis is the process used by green plants to make food using sunlight, water, and carbon dioxide, producing glucose and oxygen."
             lower.contains("glucose") ->
                 "The chemical formula for glucose is C₆H₁₂O₆."
             lower.contains("hello") || lower.contains("hi") || lower.contains("hey") ->
-                "Hello! I am VEDRA, your AI assistant. How can I assist you today?"
+                if (contextSummary.isNotBlank()) "Hello! I am VEDRA. I have your saved context loaded. How can I help you today?" else "Hello! I am VEDRA, your AI assistant. How can I assist you today?"
             lower.contains("who are you") || lower.contains("what is your name") ->
                 "I am VEDRA (or VED for short), your personal AI assistant."
             lower.contains("time") ->

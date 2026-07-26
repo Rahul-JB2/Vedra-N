@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import com.example.services.AppMapping
 import com.example.services.ContactAlias
 import com.example.services.DatabaseService
+import com.example.services.NoteItem
 import com.example.services.UserMemory
 import com.example.ui.components.CustomButton
 import com.example.ui.components.CustomCard
@@ -77,6 +78,7 @@ fun MemoryScreen(
     val userMemories = remember { mutableStateListOf<UserMemory>() }
     val contactAliases = remember { mutableStateListOf<ContactAlias>() }
     val appMappings = remember { mutableStateListOf<AppMapping>() }
+    val userNotes = remember { mutableStateListOf<NoteItem>() }
 
     // Modal state for Memory
     var isAddMemoryModalOpen by remember { mutableStateOf(false) }
@@ -93,6 +95,11 @@ fun MemoryScreen(
     var inputCustomWord by remember { mutableStateOf("") }
     var inputAppIdentifier by remember { mutableStateOf("") }
 
+    // Modal state for Note
+    var isAddNoteModalOpen by remember { mutableStateOf(false) }
+    var inputNoteTitle by remember { mutableStateOf("") }
+    var inputNoteContent by remember { mutableStateOf("") }
+
     fun refreshAll() {
         userMemories.clear()
         userMemories.addAll(dbService.getAllMemories())
@@ -102,6 +109,9 @@ fun MemoryScreen(
 
         appMappings.clear()
         appMappings.addAll(dbService.getAllMappings())
+
+        userNotes.clear()
+        userNotes.addAll(dbService.getAllNotes())
     }
 
     LaunchedEffect(Unit) {
@@ -120,13 +130,13 @@ fun MemoryScreen(
         item {
             Column {
                 Text(
-                    text = "MEMORY & ALIAS CONTROL",
+                    text = "MEMORY & NOTES CONTROL",
                     color = VedraTextPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 20.sp
                 )
                 Text(
-                    text = "Manage User Facts, Contact Aliases & App Shortcuts",
+                    text = "Manage User Facts, Aliases, Shortcuts & Voice Notes",
                     color = VedraTextSecondary,
                     fontSize = 12.sp
                 )
@@ -141,6 +151,7 @@ fun MemoryScreen(
                 MemoryStatBox(title = "Facts", value = userMemories.size.toString(), color = VedraPurplePrimary, modifier = Modifier.weight(1f))
                 MemoryStatBox(title = "Aliases", value = contactAliases.size.toString(), color = VedraCyanAccent, modifier = Modifier.weight(1f))
                 MemoryStatBox(title = "Shortcuts", value = appMappings.size.toString(), color = VedraPinkAccent, modifier = Modifier.weight(1f))
+                MemoryStatBox(title = "Notes", value = userNotes.size.toString(), color = Color(0xFFFFB74D), modifier = Modifier.weight(1f))
             }
         }
 
@@ -154,7 +165,7 @@ fun MemoryScreen(
                     .padding(4.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                val subTabs = listOf("Facts & Context", "Contact Aliases", "App Shortcuts")
+                val subTabs = listOf("Facts", "Aliases", "Shortcuts", "Notes")
                 subTabs.forEachIndexed { idx, title ->
                     val isSelected = activeSubTab == idx
                     Box(
@@ -397,6 +408,89 @@ fun MemoryScreen(
                 }
             }
         }
+
+        // SUB-TAB 3: NOTES & THOUGHTS
+        if (activeSubTab == 3) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "SAVED NOTES & THOUGHTS",
+                        color = VedraTextSecondary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                    CustomButton(
+                        text = "New Note",
+                        icon = Icons.Default.Add,
+                        onClick = {
+                            inputNoteTitle = ""
+                            inputNoteContent = ""
+                            isAddNoteModalOpen = true
+                        },
+                        modifier = Modifier.height(34.dp)
+                    )
+                }
+            }
+
+            val filteredNotes = userNotes.filter {
+                it.title.contains(searchQuery, ignoreCase = true) ||
+                        it.content.contains(searchQuery, ignoreCase = true)
+            }
+
+            if (filteredNotes.isEmpty()) {
+                item {
+                    Text(
+                        text = "No notes found. Say \"Take a note saying...\" or tap New Note above.",
+                        color = VedraTextMuted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(vertical = Spacing.medium)
+                    )
+                }
+            } else {
+                items(filteredNotes, key = { it.id }) { note ->
+                    CustomCard(borderColor = VedraPurpleSecondary) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = note.title,
+                                    color = VedraTextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                IconButton(
+                                    onClick = {
+                                        dbService.deleteNote(note.id)
+                                        refreshAll()
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete Note",
+                                        tint = VedraPinkAccent,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = note.content,
+                                color = VedraTextSecondary,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Modal for Add Memory
@@ -461,6 +555,29 @@ fun MemoryScreen(
                         dbService.addOrUpdateMapping(inputCustomWord, inputAppIdentifier)
                         refreshAll()
                         isAddMappingModalOpen = false
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+
+    // Modal for Add Note
+    CustomModal(
+        visible = isAddNoteModalOpen,
+        title = "Create New Note",
+        onDismissRequest = { isAddNoteModalOpen = false }
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.medium)) {
+            CustomInput(value = inputNoteTitle, onValueChange = { inputNoteTitle = it }, placeholder = "Note Title (e.g. Physics Summary)")
+            CustomInput(value = inputNoteContent, onValueChange = { inputNoteContent = it }, placeholder = "Note Content...")
+            CustomButton(
+                text = "Save Note",
+                onClick = {
+                    if (inputNoteTitle.isNotBlank() && inputNoteContent.isNotBlank()) {
+                        dbService.addNote(inputNoteTitle, inputNoteContent)
+                        refreshAll()
+                        isAddNoteModalOpen = false
                     }
                 },
                 modifier = Modifier.fillMaxWidth()

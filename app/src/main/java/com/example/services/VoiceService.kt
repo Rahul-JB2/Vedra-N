@@ -7,6 +7,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.compose.runtime.mutableStateOf
 import java.util.Locale
 
@@ -17,7 +18,11 @@ class VoiceService(private val context: Context) : TextToSpeech.OnInitListener {
 
     val isListening = mutableStateOf(false)
     val isSpeaking = mutableStateOf(false)
+    val isContinuousMode = mutableStateOf(false)
+    val isPaused = mutableStateOf(false)
     val lastRecognizedText = mutableStateOf("")
+
+    private var currentOnComplete: (() -> Unit)? = null
 
     init {
         if (SpeechRecognizer.isRecognitionAvailable(context)) {
@@ -28,6 +33,26 @@ class VoiceService(private val context: Context) : TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
+            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {
+                    isSpeaking.value = true
+                }
+
+                override fun onDone(utteranceId: String?) {
+                    isSpeaking.value = false
+                    val cb = currentOnComplete
+                    currentOnComplete = null
+                    cb?.invoke()
+                }
+
+                @Deprecated("Deprecated in Java")
+                override fun onError(utteranceId: String?) {
+                    isSpeaking.value = false
+                    val cb = currentOnComplete
+                    currentOnComplete = null
+                    cb?.invoke()
+                }
+            })
         }
     }
 
@@ -36,10 +61,17 @@ class VoiceService(private val context: Context) : TextToSpeech.OnInitListener {
     }
 
     fun speak(text: String, onComplete: (() -> Unit)? = null) {
-        if (text.isBlank()) return
+        if (text.isBlank()) {
+            onComplete?.invoke()
+            return
+        }
         stopListening()
         isSpeaking.value = true
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "VEDRA_TTS_ID")
+        currentOnComplete = onComplete
+        val params = Bundle().apply {
+            putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "VEDRA_TTS_${System.currentTimeMillis()}")
+        }
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "VEDRA_TTS_${System.currentTimeMillis()}")
     }
 
     fun stopSpeaking() {

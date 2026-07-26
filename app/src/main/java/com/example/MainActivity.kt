@@ -192,49 +192,61 @@ fun MainAppLayout(
                 .background(VedraBackground)
         ) {
             when (activeTab) {
-                0 -> HomeScreen(
-                    dbService = dbService,
-                    voiceService = voiceService,
-                    onActivateVoice = {
-                        hasUserInteracted = true
-                        isVoiceModeActive = true
-                    },
-                    onNavigateTab = { tab ->
-                        hasUserInteracted = true
-                        activeTab = tab
-                    },
-                    onExecuteQuickAction = { actionText ->
-                        hasUserInteracted = true
-                        UtilityService.parseAndExecuteLocalCommand(context, dbService, actionText)
-                    }
-                )
-                1 -> StudyHubScreen(
-                    dbService = dbService
-                )
-                2 -> VedScreen(
-                    dbService = dbService,
-                    voiceService = voiceService,
-                    onActivateVoiceMode = {
-                        hasUserInteracted = true
-                        isVoiceModeActive = true
-                    }
-                )
-                3 -> ActionsScreen(
-                    onExecuteAction = { cmd ->
-                        hasUserInteracted = true
-                        UtilityService.parseAndExecuteLocalCommand(context, dbService, cmd)
-                    }
-                )
-                4 -> MemoryScreen(
-                    dbService = dbService,
-                    onTestLaunch = { customWord ->
-                        hasUserInteracted = true
-                        UtilityService.parseAndExecuteLocalCommand(context, dbService, "open $customWord")
-                    }
-                )
-                5 -> SettingsScreen(
-                    dbService = dbService
-                )
+                0 -> SafeTabBoundary("Home") {
+                    HomeScreen(
+                        dbService = dbService,
+                        voiceService = voiceService,
+                        onActivateVoice = {
+                            hasUserInteracted = true
+                            isVoiceModeActive = true
+                        },
+                        onNavigateTab = { tab ->
+                            hasUserInteracted = true
+                            activeTab = tab
+                        },
+                        onExecuteQuickAction = { actionText ->
+                            hasUserInteracted = true
+                            UtilityService.parseAndExecuteLocalCommand(context, dbService, actionText)
+                        }
+                    )
+                }
+                1 -> SafeTabBoundary("Study Hub") {
+                    StudyHubScreen(
+                        dbService = dbService
+                    )
+                }
+                2 -> SafeTabBoundary("Ved AI Assistant") {
+                    VedScreen(
+                        dbService = dbService,
+                        voiceService = voiceService,
+                        onActivateVoiceMode = {
+                            hasUserInteracted = true
+                            isVoiceModeActive = true
+                        }
+                    )
+                }
+                3 -> SafeTabBoundary("Actions") {
+                    ActionsScreen(
+                        onExecuteAction = { cmd ->
+                            hasUserInteracted = true
+                            UtilityService.parseAndExecuteLocalCommand(context, dbService, cmd)
+                        }
+                    )
+                }
+                4 -> SafeTabBoundary("Memory & Notes") {
+                    MemoryScreen(
+                        dbService = dbService,
+                        onTestLaunch = { customWord ->
+                            hasUserInteracted = true
+                            UtilityService.parseAndExecuteLocalCommand(context, dbService, "open $customWord")
+                        }
+                    )
+                }
+                5 -> SafeTabBoundary("Settings") {
+                    SettingsScreen(
+                        dbService = dbService
+                    )
+                }
             }
 
             // Global VoiceMode Overlay
@@ -256,5 +268,53 @@ fun MainAppLayout(
                 )
             }
         }
+    }
+}
+
+@Composable
+fun SafeTabBoundary(
+    tabName: String,
+    content: @Composable () -> Unit
+) {
+    var hasError by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
+
+    if (hasError) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            com.example.ui.components.CustomCard(borderColor = com.example.ui.theme.VedraPinkAccent) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(
+                        text = "⚡ $tabName Screen Error",
+                        color = com.example.ui.theme.VedraPinkAccent,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (errorMessage.isNotBlank()) errorMessage else "An unexpected error occurred in $tabName.",
+                        color = com.example.ui.theme.VedraTextSecondary,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    com.example.ui.components.CustomButton(
+                        text = "Reload Screen",
+                        onClick = {
+                            hasError = false
+                            errorMessage = ""
+                        }
+                    )
+                }
+            }
+        }
+    } else {
+        content()
     }
 }

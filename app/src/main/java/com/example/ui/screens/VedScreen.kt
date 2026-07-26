@@ -136,6 +136,18 @@ fun VedScreen(
 
         inputText = ""
         messages.add(ChatMessage(sender = "USER", text = clean))
+        
+        // Check & summarize chat history if exceeds 20 messages
+        if (messages.size > 20) {
+            val countToSummarize = messages.size - 6
+            val earlierMessages = messages.take(countToSummarize)
+            val summaryText = "⚡ Context Condensed: Summarized $countToSummarize earlier messages to optimize token memory."
+            val preserved = messages.drop(countToSummarize)
+            messages.clear()
+            messages.add(ChatMessage(sender = "SYSTEM_SUMMARY", text = summaryText))
+            messages.addAll(preserved)
+        }
+
         isThinking = true
 
         coroutineScope.launch {
@@ -154,8 +166,9 @@ fun VedScreen(
                     val cached = dbService.searchCachedResponse(clean)
                     cached ?: "Offline Mode: I couldn't find '$clean' in local memory or cached responses. Reconnect to internet for full Gemini AI features."
                 } else {
-                    // Query Gemini Service for intelligent AI response
-                    val geminiReply = GeminiService.generateResponse(clean)
+                    // Inject user profile memory & aliases context into Gemini
+                    val contextSummary = dbService.getUserContextSummary()
+                    val geminiReply = GeminiService.generateResponse(clean, contextSummary)
                     // Cache response for offline use
                     dbService.saveCachedResponse(clean, geminiReply)
                     geminiReply
@@ -165,9 +178,19 @@ fun VedScreen(
             isThinking = false
             messages.add(ChatMessage(sender = "VEDRA", text = replyText))
 
-            // If voice input mode was active, read response out loud via TTS
+            // Continuous Voice Conversation Loop: read response aloud and auto-listen for follow-up
             if (isVoiceInputActive) {
-                voiceService.speak(replyText)
+                voiceService.speak(replyText) {
+                    if (isVoiceInputActive && hasMicPermission) {
+                        voiceService.startListening(
+                            onResult = { spoken ->
+                                inputText = spoken
+                                sendMessage(spoken)
+                            },
+                            onError = { /* pause loop gracefully */ }
+                        )
+                    }
+                }
             }
         }
     }
@@ -312,6 +335,52 @@ fun VedScreen(
             )
         }
 
+        if (voiceService.isListening.value) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(VedraPurplePrimary.copy(alpha = 0.2f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Mic,
+                    contentDescription = null,
+                    tint = VedraPurplePrimary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(Spacing.small))
+                Text(
+                    text = "Listening... Speak your query or press stop",
+                    color = VedraPurplePrimary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // Dynamic Quick Reply Chips
+        val lastVedraMsg = messages.lastOrNull { it.sender == "VEDRA" }?.text
+        val dynamicReplies = remember(lastVedraMsg) { computeDynamicQuickReplies(lastVedraMsg) }
+
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.small),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+        ) {
+            items(dynamicReplies) { reply ->
+                CustomButton(
+                    text = reply,
+                    onClick = { sendMessage(reply) },
+                    isSecondary = true,
+                    modifier = Modifier.height(30.dp)
+                )
+            }
+        }
+
         // Input Field using CustomInput
         Row(
             modifier = Modifier
@@ -343,12 +412,56 @@ fun VedScreen(
     }
 }
 
+fun computeDynamicQuickReplies(lastVedraMsgText: String?): List<String> {
+    if (lastVedraMsgText.isNullOrBlank()) {
+        return listOf("Tell me more", "Explain photosynthesis", "Turn on flashlight", "Daily Briefing")
+    }
+    val lower = lastVedraMsgText.lowercase()
+    return when {
+        lower.contains("?") || lower.contains("would you like") || lower.contains("do you want") ->
+            listOf("Yes, please", "No, thanks", "Tell me more", "Why?")
+        lower.contains("study") || lower.contains("exam") || lower.contains("physics") || lower.contains("topic") ->
+            listOf("Add Study Task", "Create Flashcard", "Explain further", "Give an example")
+        lower.contains("weather") ->
+            listOf("Show forecast", "Daily Briefing", "Thank you")
+        lower.contains("offline") ->
+            listOf("Check saved profile", "Show routines", "Turn on flashlight")
+        else ->
+            listOf("Tell me more", "Summarize this", "Give an example", "What else can you do?")
+    }
+}
+
 @Composable
 fun ChatMessageBubble(
     message: ChatMessage,
     onSpeak: () -> Unit,
     onCopy: () -> Unit
 ) {
+    if (message.sender == "SYSTEM_SUMMARY") {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF3E2723))
+                    .border(1.dp, Color(0xFFFFB74D), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = message.text,
+                    color = Color(0xFFFFE0B2),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+        return
+    }
+
     val isUser = message.sender == "USER"
 
     Column(
