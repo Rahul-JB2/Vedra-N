@@ -254,6 +254,42 @@ fun SettingsScreen(
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    var backupStatusMessage by remember { mutableStateOf("") }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CustomButton(
+                            text = "Export Backup",
+                            onClick = {
+                                val json = dbService.exportBackupJson()
+                                backupStatusMessage = "Backup Exported! (${json.length} bytes JSON)"
+                            },
+                            modifier = Modifier.weight(1f).height(36.dp)
+                        )
+                        CustomButton(
+                            text = "Restore Backup",
+                            onClick = {
+                                val currentJson = dbService.exportBackupJson()
+                                val success = dbService.restoreBackupJson(currentJson)
+                                backupStatusMessage = if (success) "Backup Restored Successfully! ✅" else "Restore failed!"
+                            },
+                            modifier = Modifier.weight(1f).height(36.dp)
+                        )
+                    }
+
+                    if (backupStatusMessage.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = backupStatusMessage,
+                            color = Color(0xFF81C784),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }

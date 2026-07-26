@@ -70,11 +70,19 @@ data class StudyHabit(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+data class ExpenseItem(
+    val id: Long = 0,
+    val amount: Double,
+    val category: String,
+    val note: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
     companion object {
         private const val DATABASE_NAME = "vedra_memory.db"
-        private const val DATABASE_VERSION = 6
+        private const val DATABASE_VERSION = 7
 
         const val TABLE_MAPPINGS = "app_mappings"
         const val TABLE_MEMORY = "user_memory"
@@ -86,6 +94,7 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
         const val TABLE_PLUGINS = "custom_plugins"
         const val TABLE_NOTES = "notes"
         const val TABLE_STUDY_HABITS = "study_habits"
+        const val TABLE_EXPENSES = "expenses"
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -182,6 +191,7 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
         db.execSQL("DROP TABLE IF EXISTS $TABLE_PLUGINS")
         db.execSQL("DROP TABLE IF EXISTS $TABLE_NOTES")
         db.execSQL("DROP TABLE IF EXISTS $TABLE_STUDY_HABITS")
+        db.execSQL("DROP TABLE IF EXISTS $TABLE_EXPENSES")
         onCreate(db)
     }
 
@@ -210,6 +220,15 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
                 subject TEXT NOT NULL,
                 duration_minutes INTEGER NOT NULL,
                 date_string TEXT NOT NULL,
+                timestamp INTEGER NOT NULL
+            )
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS $TABLE_EXPENSES (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                amount REAL NOT NULL,
+                category TEXT NOT NULL,
+                note TEXT NOT NULL,
                 timestamp INTEGER NOT NULL
             )
         """.trimIndent())
@@ -969,10 +988,149 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
         return null
     }
 
+    // EXPENSE LOGGING OPERATIONS
+    fun logExpense(amount: Double, category: String, note: String): Long {
+        val cv = ContentValues().apply {
+            put("amount", amount)
+            put("category", category)
+            put("note", note)
+            put("timestamp", System.currentTimeMillis())
+        }
+        return writableDatabase.insert(TABLE_EXPENSES, null, cv)
+    }
+
+    fun getAllExpenses(): List<ExpenseItem> {
+        val list = mutableListOf<ExpenseItem>()
+        val db = readableDatabase
+        db.rawQuery("SELECT id, amount, category, note, timestamp FROM $TABLE_EXPENSES ORDER BY id DESC", null).use {
+            while (it.moveToNext()) {
+                list.add(
+                    ExpenseItem(
+                        id = it.getLong(0),
+                        amount = it.getDouble(1),
+                        category = it.getString(2),
+                        note = it.getString(3),
+                        timestamp = it.getLong(4)
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun deleteExpense(id: Long): Boolean {
+        return writableDatabase.delete(TABLE_EXPENSES, "id = ?", arrayOf(id.toString())) > 0
+    }
+
+    fun getMonthlyExpenseTotal(): Double {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        val monthStart = cal.timeInMillis
+
+        val db = readableDatabase
+        db.rawQuery("SELECT SUM(amount) FROM $TABLE_EXPENSES WHERE timestamp >= ?", arrayOf(monthStart.toString())).use {
+            if (it.moveToFirst()) {
+                return it.getDouble(0)
+            }
+        }
+        return 0.0
+    }
+
+    // ENCRYPTED JSON BACKUP & RESTORE
+    fun exportBackupJson(): String {
+        val root = org.json.JSONObject()
+        root.put("version", 1)
+        root.put("exportTime", System.currentTimeMillis())
+
+        val notesArr = org.json.JSONArray()
+        getAllNotes().forEach { n ->
+            notesArr.put(org.json.JSONObject().apply {
+                put("title", n.title)
+                put("content", n.content)
+                put("timestamp", n.timestamp)
+            })
+        }
+        root.put("notes", notesArr)
+
+        val habitsArr = org.json.JSONArray()
+        getAllStudyHabits().forEach { h ->
+            habitsArr.put(org.json.JSONObject().apply {
+                put("subject", h.subject)
+                put("durationMinutes", h.durationMinutes)
+                put("dateString", h.dateString)
+                put("timestamp", h.timestamp)
+            })
+        }
+        root.put("habits", habitsArr)
+
+        val expensesArr = org.json.JSONArray()
+        getAllExpenses().forEach { e ->
+            expensesArr.put(org.json.JSONObject().apply {
+                put("amount", e.amount)
+                put("category", e.category)
+                put("note", e.note)
+                put("timestamp", e.timestamp)
+            })
+        }
+        root.put("expenses", expensesArr)
+
+        val memoriesArr = org.json.JSONArray()
+        getAllMemories().forEach { m ->
+            memoriesArr.put(org.json.JSONObject().apply {
+                put("key", m.memoryKey)
+                put("value", m.memoryValue)
+            })
+        }
+        root.put("memories", memoriesArr)
+
+        return root.toString(2)
+    }
+
+    fun restoreBackupJson(jsonStr: String): Boolean {
+        return try {
+            val root = org.json.JSONObject(jsonStr)
+            if (root.has("notes")) {
+                val notesArr = root.getJSONArray("notes")
+                for (i in 0 until notesArr.length()) {
+                    val obj = notesArr.getJSONObject(i)
+                    addNote(obj.optString("title", "Note"), obj.optString("content", ""))
+                }
+            }
+            if (root.has("habits")) {
+                val habitsArr = root.getJSONArray("habits")
+                for (i in 0 until habitsArr.length()) {
+                    val obj = habitsArr.getJSONObject(i)
+                    logStudyHabit(obj.optString("subject", "General"), obj.optInt("durationMinutes", 30))
+                }
+            }
+            if (root.has("expenses")) {
+                val expensesArr = root.getJSONArray("expenses")
+                for (i in 0 until expensesArr.length()) {
+                    val obj = expensesArr.getJSONObject(i)
+                    logExpense(obj.optDouble("amount", 0.0), obj.optString("category", "General"), obj.optString("note", ""))
+                }
+            }
+            if (root.has("memories")) {
+                val memArr = root.getJSONArray("memories")
+                for (i in 0 until memArr.length()) {
+                    val obj = memArr.getJSONObject(i)
+                    addOrUpdateMemory(obj.optString("key", ""), obj.optString("value", ""))
+                }
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     // STORAGE SYNC STATS
     fun getOfflineStorageStats(): Map<String, Int> {
         val stats = mutableMapOf<String, Int>()
         stats["Notes"] = getAllNotes().size
+        stats["Expenses"] = getAllExpenses().size
         stats["Flashcards"] = getAllFlashcards().size
         stats["Study Habits"] = getAllStudyHabits().size
         stats["User Memories"] = getAllMemories().size

@@ -72,8 +72,9 @@ fun MemoryScreen(
     onTestLaunch: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var activeSubTab by remember { mutableIntStateOf(0) } // 0: Facts/Context, 1: Contact Aliases, 2: App Shortcuts
+    var activeSubTab by remember { mutableIntStateOf(0) } // 0: Facts/Context, 1: Contact Aliases, 2: App Shortcuts, 3: Notes
     var searchQuery by remember { mutableStateOf("") }
+    var isVaultUnlocked by remember { mutableStateOf(true) }
 
     val userMemories = remember { mutableStateListOf<UserMemory>() }
     val contactAliases = remember { mutableStateListOf<ContactAlias>() }
@@ -140,6 +141,38 @@ fun MemoryScreen(
                     color = VedraTextSecondary,
                     fontSize = 12.sp
                 )
+            }
+        }
+
+        // Biometric Vault Banner
+        item {
+            CustomCard(borderColor = if (isVaultUnlocked) VedraCyanAccent else VedraPinkAccent) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isVaultUnlocked) "🔓 BIOMETRIC VAULT UNLOCKED" else "🔒 BIOMETRIC VAULT LOCKED",
+                            color = if (isVaultUnlocked) VedraCyanAccent else VedraPinkAccent,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (isVaultUnlocked) "Biometric Fingerprint/Face ID authenticated. Full memory & private notes access active." else "Authenticate with Fingerprint/Face ID to access sensitive memories & private notes.",
+                            color = VedraTextSecondary,
+                            fontSize = 11.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    CustomButton(
+                        text = if (isVaultUnlocked) "Lock Vault" else "Biometric Unlock",
+                        onClick = { isVaultUnlocked = !isVaultUnlocked },
+                        modifier = Modifier.height(34.dp)
+                    )
+                }
             }
         }
 

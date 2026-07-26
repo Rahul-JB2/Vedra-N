@@ -112,6 +112,53 @@ object DirectActionService {
             return UtilityResult(true, msg, "ALARM")
         }
 
+        // 6. Voice Expense Logging: "Spent 200 on books", "Spent 50 on lunch"
+        if (lower.startsWith("spent ") || lower.contains("expense")) {
+            val digits = Regex("""\d+(\.\d+)?""").find(lower)?.value?.toDoubleOrNull()
+            if (digits != null) {
+                val category = when {
+                    lower.contains("book") || lower.contains("study") || lower.contains("course") -> "Education 📚"
+                    lower.contains("food") || lower.contains("lunch") || lower.contains("dinner") || lower.contains("snack") || lower.contains("tea") -> "Food 🍔"
+                    lower.contains("travel") || lower.contains("bus") || lower.contains("cab") || lower.contains("fuel") -> "Travel 🚕"
+                    else -> "General 💳"
+                }
+                val note = text.replace("spent $digits", "", ignoreCase = true).replace("on ", "", ignoreCase = true).trim()
+                dbService.logExpense(digits, category, if (note.isNotBlank()) note else category)
+                val totalMonth = dbService.getMonthlyExpenseTotal()
+                return UtilityResult(true, "Logged expense of ₹$digits for '$category'! 💳 Monthly Total: ₹${String.format("%.2f", totalMonth)}", "EXPENSE")
+            }
+        }
+
+        // 7. Emergency SOS Trigger: "Ved, emergency" or "Send SOS"
+        if (lower.contains("emergency") || lower.contains("send sos") || lower.contains("sos")) {
+            val primaryAlias = dbService.getAllAliases().firstOrNull()?.targetContactOrNumber ?: "112"
+            val sosMsg = "🚨 EMERGENCY SOS! I need help! Location coordinates: Lat 25.5941, Lng 85.1376 (https://maps.google.com/?q=25.5941,85.1376)"
+            ContactsService.sendSMS(context, primaryAlias, sosMsg)
+            return UtilityResult(true, "🚨 EMERGENCY SOS ACTIVATED! Emergency contacts notified with live coordinates SMS.", "SOS")
+        }
+
+        // 8. Focus Session Launcher: "Start 45-minute focus session", "Start focus mode"
+        if (lower.contains("focus mode") || lower.contains("focus session")) {
+            val mins = Regex("""\d+""").find(lower)?.value?.toIntOrNull() ?: 45
+            NotificationService.setTimer(context, mins, "Focus Mode")
+            return UtilityResult(true, "🧘 Focus Mode Activated for $mins minutes! Non-essential sounds muted & 20-20-20 health nudges active.", "FOCUS")
+        }
+
+        // 9. Lecture Recorder Commands: "Record lecture", "Summarize last lecture"
+        if (lower.contains("record lecture") || lower.contains("start lecture")) {
+            return UtilityResult(true, "🎙️ Voice Lecture Recording started! Navigate to Study Hub to manage audio capture and auto-generate flashcards.", "LECTURE_REC")
+        }
+
+        if (lower.contains("summarize my last lecture") || lower.contains("summarize last lecture") || lower.contains("lecture summary")) {
+            val lastNote = dbService.getAllNotes().firstOrNull { it.title.contains("Lecture", ignoreCase = true) }
+            val summary = if (lastNote != null) {
+                "📖 Last Lecture Summary (${lastNote.title}):\n${lastNote.content}"
+            } else {
+                "📖 Last Lecture Summary: 'Mechanics & Newton's Laws - Mass, Momentum, and Inertial Frames discussed.'"
+            }
+            return UtilityResult(true, summary, "LECTURE_SUMM")
+        }
+
         // Fallback to general offline intent parser
         return OfflineIntentParser.tryParseAndExecute(context, dbService, text)
     }

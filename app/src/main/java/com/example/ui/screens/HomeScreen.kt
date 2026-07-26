@@ -332,6 +332,57 @@ fun HomeScreen(
             }
         }
 
+        // Monthly Expense Summary Card
+        item {
+            val monthlyTotal = dbService.getMonthlyExpenseTotal()
+            val expenses = dbService.getAllExpenses()
+
+            CustomCard(borderColor = VedraPinkAccent) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "💳 MONTHLY EXPENSES",
+                                color = VedraPinkAccent,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Text(
+                            text = "Total: ₹${String.format("%.2f", monthlyTotal)}",
+                            color = VedraTextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                    }
+
+                    if (expenses.isEmpty()) {
+                        Text(
+                            text = "No expenses logged this month. Say \"Spent 200 on books\" or \"Spent 50 on lunch\" to log.",
+                            color = VedraTextMuted,
+                            fontSize = 12.sp
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            expenses.take(3).forEach { exp ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(text = "${exp.category}: ${exp.note}", color = VedraTextSecondary, fontSize = 12.sp)
+                                    Text(text = "₹${exp.amount}", color = VedraPinkAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Storage Manager Section
         item {
             CustomCard(borderColor = VedraPurplePrimary) {
