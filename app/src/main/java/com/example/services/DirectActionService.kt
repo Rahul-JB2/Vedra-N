@@ -159,6 +159,14 @@ object DirectActionService {
             return UtilityResult(true, summary, "LECTURE_SUMM")
         }
 
+        // 10. Voice Google Drive Sync: "Back up my memory to Drive", "Sync memories to drive"
+        if (lower.contains("back up my memory") || lower.contains("backup memory") || lower.contains("backup to drive") || lower.contains("sync memory to drive") || lower.contains("backup my memory")) {
+            val syncMsg = kotlinx.coroutines.runBlocking {
+                GoogleDriveService.exportAllMemoriesToDrive(context, dbService)
+            }
+            return UtilityResult(true, syncMsg, "DRIVE_SYNC")
+        }
+
         // Fallback to general offline intent parser
         return OfflineIntentParser.tryParseAndExecute(context, dbService, text)
     }

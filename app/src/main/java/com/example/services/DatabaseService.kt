@@ -1120,7 +1120,7 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
     // ENCRYPTED JSON BACKUP & RESTORE
     fun exportBackupJson(): String {
         val root = org.json.JSONObject()
-        root.put("version", 1)
+        root.put("version", 2)
         root.put("exportTime", System.currentTimeMillis())
 
         val notesArr = org.json.JSONArray()
@@ -1160,9 +1160,41 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
             memoriesArr.put(org.json.JSONObject().apply {
                 put("key", m.memoryKey)
                 put("value", m.memoryValue)
+                put("profile", m.profile)
+                put("expiresAt", m.expiresAt)
             })
         }
         root.put("memories", memoriesArr)
+
+        val flashcardsArr = org.json.JSONArray()
+        getAllFlashcards().forEach { fc ->
+            flashcardsArr.put(org.json.JSONObject().apply {
+                put("subject", fc.subject)
+                put("topic", fc.topic)
+                put("question", fc.question)
+                put("answer", fc.answer)
+                put("formula", fc.formula)
+            })
+        }
+        root.put("flashcards", flashcardsArr)
+
+        val aliasesArr = org.json.JSONArray()
+        getAllAliases().forEach { a ->
+            aliasesArr.put(org.json.JSONObject().apply {
+                put("aliasName", a.aliasName)
+                put("targetContactOrNumber", a.targetContactOrNumber)
+            })
+        }
+        root.put("aliases", aliasesArr)
+
+        val mappingsArr = org.json.JSONArray()
+        getAllMappings().forEach { m ->
+            mappingsArr.put(org.json.JSONObject().apply {
+                put("customWord", m.customWord)
+                put("appIdentifier", m.appIdentifier)
+            })
+        }
+        root.put("mappings", mappingsArr)
 
         return root.toString(2)
     }
@@ -1195,7 +1227,39 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
                 val memArr = root.getJSONArray("memories")
                 for (i in 0 until memArr.length()) {
                     val obj = memArr.getJSONObject(i)
-                    addOrUpdateMemory(obj.optString("key", ""), obj.optString("value", ""))
+                    addOrUpdateMemory(
+                        obj.optString("key", ""),
+                        obj.optString("value", ""),
+                        obj.optString("profile", "General"),
+                        obj.optLong("expiresAt", 0L)
+                    )
+                }
+            }
+            if (root.has("flashcards")) {
+                val fcArr = root.getJSONArray("flashcards")
+                for (i in 0 until fcArr.length()) {
+                    val obj = fcArr.getJSONObject(i)
+                    addFlashcard(
+                        obj.optString("subject", "General"),
+                        obj.optString("topic", "General"),
+                        obj.optString("question", ""),
+                        obj.optString("answer", ""),
+                        if (obj.has("formula")) obj.optString("formula") else null
+                    )
+                }
+            }
+            if (root.has("aliases")) {
+                val alArr = root.getJSONArray("aliases")
+                for (i in 0 until alArr.length()) {
+                    val obj = alArr.getJSONObject(i)
+                    addOrUpdateAlias(obj.optString("aliasName", ""), obj.optString("targetContactOrNumber", ""))
+                }
+            }
+            if (root.has("mappings")) {
+                val mapArr = root.getJSONArray("mappings")
+                for (i in 0 until mapArr.length()) {
+                    val obj = mapArr.getJSONObject(i)
+                    addOrUpdateMapping(obj.optString("customWord", ""), obj.optString("appIdentifier", ""))
                 }
             }
             true

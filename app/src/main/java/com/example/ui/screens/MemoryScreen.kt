@@ -44,6 +44,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import com.example.services.GoogleDriveService
 import com.example.services.AppMapping
 import com.example.services.ContactAlias
 import com.example.services.DatabaseService
@@ -80,6 +84,12 @@ fun MemoryScreen(
     val contactAliases = remember { mutableStateListOf<ContactAlias>() }
     val appMappings = remember { mutableStateListOf<AppMapping>() }
     val userNotes = remember { mutableStateListOf<NoteItem>() }
+
+    // Google Drive Sync State
+    var isDriveSyncing by remember { mutableStateOf(false) }
+    var driveSyncMessage by remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     // Modal state for Memory
     var isAddMemoryModalOpen by remember { mutableStateOf(false) }
@@ -192,6 +202,98 @@ fun MemoryScreen(
                 MemoryStatBox(title = "Aliases", value = contactAliases.size.toString(), color = VedraCyanAccent, modifier = Modifier.weight(1f))
                 MemoryStatBox(title = "Shortcuts", value = appMappings.size.toString(), color = VedraPinkAccent, modifier = Modifier.weight(1f))
                 MemoryStatBox(title = "Notes", value = userNotes.size.toString(), color = Color(0xFFFFB74D), modifier = Modifier.weight(1f))
+            }
+        }
+
+        // PERSONAL GMAIL DRIVE SYNC CARD
+        item {
+            CustomCard(borderColor = VedraCyanAccent) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "☁️ PERSONAL GMAIL DRIVE SYNC",
+                            color = VedraCyanAccent,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = if (GoogleDriveService.isConnected(dbService)) "Connected" else "Disconnected",
+                            color = if (GoogleDriveService.isConnected(dbService)) Color(0xFF4CAF50) else VedraPinkAccent,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    val connectedEmail = GoogleDriveService.getConnectedEmail(dbService)
+                    val lastSync = GoogleDriveService.getLastSyncTime(dbService)
+
+                    Text(
+                        text = "Account: $connectedEmail\nFolder: VEDRA_AI_Memories • Last Sync: $lastSync",
+                        color = VedraTextSecondary,
+                        fontSize = 11.sp
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        CustomButton(
+                            text = if (GoogleDriveService.isConnected(dbService)) "Disconnect" else "Connect Gmail",
+                            onClick = {
+                                if (GoogleDriveService.isConnected(dbService)) {
+                                    GoogleDriveService.disconnectAccount(dbService)
+                                    driveSyncMessage = "Disconnected Google Drive."
+                                } else {
+                                    GoogleDriveService.connectAccount(dbService, "rk70502025@gmail.com")
+                                    driveSyncMessage = "Connected Google Drive for rk70502025@gmail.com."
+                                }
+                                refreshAll()
+                            },
+                            isSecondary = GoogleDriveService.isConnected(dbService),
+                            modifier = Modifier.weight(1f).height(34.dp)
+                        )
+
+                        CustomButton(
+                            text = if (isDriveSyncing) "Syncing..." else "Back Up Now",
+                            onClick = {
+                                isDriveSyncing = true
+                                coroutineScope.launch {
+                                    driveSyncMessage = GoogleDriveService.exportAllMemoriesToDrive(context, dbService)
+                                    isDriveSyncing = false
+                                    refreshAll()
+                                }
+                            },
+                            modifier = Modifier.weight(1f).height(34.dp)
+                        )
+
+                        CustomButton(
+                            text = "Restore",
+                            onClick = {
+                                isDriveSyncing = true
+                                coroutineScope.launch {
+                                    driveSyncMessage = GoogleDriveService.importMemoriesFromDrive(context, dbService)
+                                    isDriveSyncing = false
+                                    refreshAll()
+                                }
+                            },
+                            isSecondary = true,
+                            modifier = Modifier.weight(1f).height(34.dp)
+                        )
+                    }
+
+                    if (driveSyncMessage != null) {
+                        Text(
+                            text = driveSyncMessage!!,
+                            color = VedraTextPrimary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
         }
 

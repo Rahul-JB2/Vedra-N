@@ -72,6 +72,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
+import com.example.services.GoogleDriveService
 import com.example.services.PermissionService
 import com.example.services.PermissionStatus
 import com.example.services.TranslationService
@@ -101,6 +103,10 @@ fun SettingsScreen(
     var clearConfirmSection by remember { mutableStateOf<String?>(null) }
 
     // Task Chains / Routines State
+    val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+    var isDriveSyncing by remember { mutableStateOf(false) }
+    var driveSyncMessage by remember { mutableStateOf<String?>(null) }
+
     var isAddRoutineModalOpen by remember { mutableStateOf(false) }
     var routineTriggerInput by remember { mutableStateOf("") }
     var routineActionsInput by remember { mutableStateOf("") } // Comma separated actions
@@ -297,6 +303,95 @@ fun SettingsScreen(
                         Text(
                             text = backupStatusMessage,
                             color = Color(0xFF81C784),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
+        // PERSONAL GMAIL DRIVE SYNC CARD
+        item {
+            CustomCard(borderColor = VedraCyanAccent) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "☁️ PERSONAL GMAIL DRIVE SYNC",
+                            color = VedraCyanAccent,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = if (GoogleDriveService.isConnected(dbService)) "Connected" else "Disconnected",
+                            color = if (GoogleDriveService.isConnected(dbService)) Color(0xFF4CAF50) else VedraPinkAccent,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    val connectedEmail = GoogleDriveService.getConnectedEmail(dbService)
+                    val lastSync = GoogleDriveService.getLastSyncTime(dbService)
+
+                    Text(
+                        text = "Account: $connectedEmail\nFolder: VEDRA_AI_Memories • Last Sync: $lastSync",
+                        color = VedraTextSecondary,
+                        fontSize = 11.sp
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        CustomButton(
+                            text = if (GoogleDriveService.isConnected(dbService)) "Disconnect" else "Connect Gmail",
+                            onClick = {
+                                if (GoogleDriveService.isConnected(dbService)) {
+                                    GoogleDriveService.disconnectAccount(dbService)
+                                    driveSyncMessage = "Disconnected Google Drive."
+                                } else {
+                                    GoogleDriveService.connectAccount(dbService, "rk70502025@gmail.com")
+                                    driveSyncMessage = "Connected Google Drive for rk70502025@gmail.com."
+                                }
+                            },
+                            isSecondary = GoogleDriveService.isConnected(dbService),
+                            modifier = Modifier.weight(1f).height(34.dp)
+                        )
+
+                        CustomButton(
+                            text = if (isDriveSyncing) "Syncing..." else "Back Up Now",
+                            onClick = {
+                                isDriveSyncing = true
+                                coroutineScope.launch {
+                                    driveSyncMessage = GoogleDriveService.exportAllMemoriesToDrive(context, dbService)
+                                    isDriveSyncing = false
+                                }
+                            },
+                            modifier = Modifier.weight(1f).height(34.dp)
+                        )
+
+                        CustomButton(
+                            text = "Restore",
+                            onClick = {
+                                isDriveSyncing = true
+                                coroutineScope.launch {
+                                    driveSyncMessage = GoogleDriveService.importMemoriesFromDrive(context, dbService)
+                                    isDriveSyncing = false
+                                }
+                            },
+                            isSecondary = true,
+                            modifier = Modifier.weight(1f).height(34.dp)
+                        )
+                    }
+
+                    if (driveSyncMessage != null) {
+                        Text(
+                            text = driveSyncMessage!!,
+                            color = VedraTextPrimary,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
