@@ -14,7 +14,6 @@ async function askGemini(messages) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages }),
   })
-
   const data = await res.json()
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
   return data.text
@@ -38,29 +37,35 @@ export default function VedScreen({ pendingCommand, onPendingCommandConsumed }) 
       onPendingCommandConsumed?.()
       send(pendingCommand)
     }
-  }, [pendingCommand])
+  }, [pendingCommand]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const send = async (text) => {
     const t = (text ?? input).trim()
     if (!t || loading) return
     setInput('')
 
+    // Build the new message and the full snapshot in one step — no double append
     const userMsg = { id: Date.now().toString(), sender: 'USER', text: t }
-    const updated = (prev) => [...prev, userMsg]
-    setMessages(updated)
-    setLoading(true)
-
-    let snapshot
+    let withUser
     setMessages(prev => {
-      snapshot = [...prev, userMsg]
-      return snapshot
+      withUser = [...prev, userMsg]
+      return withUser
     })
 
+    setLoading(true)
     try {
-      const reply = await askGemini(snapshot ?? [userMsg])
-      setMessages(prev => [...prev, { id: Date.now() + '_ai', sender: 'VEDRA', text: reply }])
+      // withUser may still be undefined if React batched the setter; use a fallback
+      const snapshot = withUser ?? [userMsg]
+      const reply = await askGemini(snapshot)
+      setMessages(prev => [
+        ...prev,
+        { id: Date.now() + '_ai', sender: 'VEDRA', text: reply },
+      ])
     } catch (e) {
-      setMessages(prev => [...prev, { id: Date.now() + '_err', sender: 'VEDRA', text: `⚠️ ${e.message}` }])
+      setMessages(prev => [
+        ...prev,
+        { id: Date.now() + '_err', sender: 'VEDRA', text: `⚠️ ${e.message}` },
+      ])
     } finally {
       setLoading(false)
     }
@@ -72,12 +77,17 @@ export default function VedScreen({ pendingCommand, onPendingCommandConsumed }) 
     <div className={styles.container}>
       <div className={styles.messages}>
         {messages.map(msg => (
-          <div key={msg.id} className={`${styles.msgRow} ${msg.sender === 'USER' ? styles.userRow : styles.aiRow}`}>
+          <div
+            key={msg.id}
+            className={`${styles.msgRow} ${msg.sender === 'USER' ? styles.userRow : styles.aiRow}`}
+          >
             {msg.sender === 'VEDRA' && <div className={styles.avatar}>V</div>}
             <div className={`${styles.bubble} ${msg.sender === 'USER' ? styles.userBubble : styles.aiBubble}`}>
               <div className={styles.msgText}>{msg.text}</div>
               {msg.sender === 'VEDRA' && (
-                <button className={styles.copyBtn} onClick={() => copy(msg.text)} title="Copy">📋</button>
+                <button className={styles.copyBtn} onClick={() => copy(msg.text)} title="Copy">
+                  📋
+                </button>
               )}
             </div>
           </div>
@@ -87,7 +97,9 @@ export default function VedScreen({ pendingCommand, onPendingCommandConsumed }) 
           <div className={`${styles.msgRow} ${styles.aiRow}`}>
             <div className={styles.avatar}>V</div>
             <div className={`${styles.bubble} ${styles.aiBubble}`}>
-              <div className={styles.typing}><span /><span /><span /></div>
+              <div className={styles.typing}>
+                <span /><span /><span />
+              </div>
             </div>
           </div>
         )}
@@ -97,7 +109,9 @@ export default function VedScreen({ pendingCommand, onPendingCommandConsumed }) 
       {messages.length <= 1 && (
         <div className={styles.suggestions}>
           {SUGGESTIONS.map(s => (
-            <button key={s} className={styles.suggestion} onClick={() => send(s)}>{s}</button>
+            <button key={s} className={styles.suggestion} onClick={() => send(s)}>
+              {s}
+            </button>
           ))}
         </div>
       )}
@@ -115,7 +129,9 @@ export default function VedScreen({ pendingCommand, onPendingCommandConsumed }) 
           className={styles.sendBtn}
           onClick={() => send()}
           disabled={!input.trim() || loading}
-        >➤</button>
+        >
+          ➤
+        </button>
       </div>
     </div>
   )

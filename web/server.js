@@ -1,23 +1,47 @@
 import express from 'express'
-import cors from 'cors'
+import rateLimit from 'express-rate-limit'
 
 const app = express()
-app.use(cors())
 app.use(express.json())
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'
+// Internal token shared with the Vite proxy. Any request lacking this
+// header could not have come through the proxy and is rejected.
+const INTERNAL_TOKEN = process.env.INTERNAL_API_TOKEN || 'vedra-internal'
 
-app.post('/api/chat', async (req, res) => {
+app.use((req, res, next) => {
+  if (req.headers['x-internal-token'] !== INTERNAL_TOKEN) {
+    return res.status(403).json({ error: 'Forbidden' })
+  }
+  next()
+})
+
+// Rate-limit: max 30 requests per minute per IP
+const limiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests — please slow down.' },
+})
+
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY
+const GEMINI_URL =
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'
+
+app.post('/api/chat', limiter, async (req, res) => {
   if (!GEMINI_API_KEY) {
     return res.status(500).json({ error: 'GEMINI_API_KEY not configured on server.' })
   }
 
+  const { messages } = req.body
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: 'Invalid messages array.' })
+  }
+
   try {
-    const { messages } = req.body
     const contents = messages.map(m => ({
       role: m.sender === 'USER' ? 'user' : 'model',
-      parts: [{ text: m.text }],
+      parts: [{ text: String(m.text) }],
     }))
 
     const response = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
@@ -45,5 +69,8 @@ app.post('/api/chat', async (req, res) => {
   }
 })
 
+// Bind to loopback only — not reachable externally
 const PORT = 3001
-app.listen(PORT, () => console.log(`VEDRA API server running on port ${PORT}`))
+app.listen(PORT, '127.0.0.1', () =>
+  console.log(`VEDRA API server on 127.0.0.1:${PORT} (internal only)`)
+)
