@@ -1,0 +1,25 @@
+:root {
+  --bg: #090A10;
+  --surface: #121524;
+  --surface-variant: #1B1F33;
+  --border: #2A2E47;
+  --purple: #8B5CF6;
+  --purple-2: #A855F7;
+  --cyan: #06B6D4;
+  --blue: #3B82F6;
+  --pink: #EC4899;
+  --green: #10B981;
+  --text: #F3F4F6;
+  --text-2: #9CA3AF;
+  --text-muted: #6B7280;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; }
+
+button { cursor: pointer; border: none; outline: none; font-family: inherit; }
+input, textarea { font-family: inherit; }
+
+.scrollbar-thin::-webkit-scrollbar { width: 4px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: var(--surface); }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
