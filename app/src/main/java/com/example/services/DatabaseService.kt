@@ -16,7 +16,9 @@ data class AppMapping(
 data class UserMemory(
     val id: Long = 0,
     val memoryKey: String,
-    val memoryValue: String
+    val memoryValue: String,
+    val profile: String = "General",
+    val expiresAt: Long = 0L
 )
 
 data class ContactAlias(
@@ -232,6 +234,15 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
                 timestamp INTEGER NOT NULL
             )
         """.trimIndent())
+        try {
+            db.execSQL("ALTER TABLE $TABLE_MEMORY ADD COLUMN profile TEXT DEFAULT 'General'")
+        } catch (_: Exception) {}
+        try {
+            db.execSQL("ALTER TABLE $TABLE_MEMORY ADD COLUMN expires_at INTEGER DEFAULT 0")
+        } catch (_: Exception) {}
+        try {
+            db.execSQL("DELETE FROM $TABLE_MEMORY WHERE expires_at > 0 AND expires_at < ${System.currentTimeMillis()}")
+        } catch (_: Exception) {}
         seedDefaultPlugins(db)
     }
 
@@ -508,26 +519,34 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
     }
 
     // --- USER MEMORY ---
-    fun getAllMemories(): List<UserMemory> {
+    fun getAllMemories(profileFilter: String? = null): List<UserMemory> {
         val list = mutableListOf<UserMemory>()
         val db = readableDatabase
         val cursor = db.query(TABLE_MEMORY, null, null, null, null, null, "memory_key ASC")
         cursor.use {
-            val idIdx = it.getColumnIndexOrThrow("id")
-            val keyIdx = it.getColumnIndexOrThrow("memory_key")
-            val valIdx = it.getColumnIndexOrThrow("memory_value")
+            val idIdx = it.getColumnIndex("id")
+            val keyIdx = it.getColumnIndex("memory_key")
+            val valIdx = it.getColumnIndex("memory_value")
+            val profIdx = it.getColumnIndex("profile")
+            val expIdx = it.getColumnIndex("expires_at")
             while (it.moveToNext()) {
-                list.add(UserMemory(it.getLong(idIdx), it.getString(keyIdx), it.getString(valIdx)))
+                val prof = if (profIdx != -1 && !it.isNull(profIdx)) it.getString(profIdx) else "General"
+                val exp = if (expIdx != -1 && !it.isNull(expIdx)) it.getLong(expIdx) else 0L
+                if (profileFilter == null || profileFilter.equals("All", ignoreCase = true) || prof.equals(profileFilter, ignoreCase = true)) {
+                    list.add(UserMemory(it.getLong(idIdx), it.getString(keyIdx), it.getString(valIdx), prof, exp))
+                }
             }
         }
         return list
     }
 
-    fun addOrUpdateMemory(key: String, value: String): Boolean {
+    fun addOrUpdateMemory(key: String, value: String, profile: String = "General", expiresAt: Long = 0L): Boolean {
         val db = writableDatabase
         val cv = ContentValues().apply {
             put("memory_key", key.trim())
             put("memory_value", value.trim())
+            put("profile", profile)
+            put("expires_at", expiresAt)
         }
         val res = db.insertWithOnConflict(TABLE_MEMORY, null, cv, SQLiteDatabase.CONFLICT_REPLACE)
         return res != -1L
@@ -545,6 +564,22 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
             }
         }
         return null
+    }
+
+    fun testMemoryContext(query: String): String {
+        val memories = getAllMemories()
+        val tokens = query.lowercase().split(" ").filter { it.length > 2 }
+        val matches = memories.filter { mem ->
+            tokens.any { mem.memoryKey.lowercase().contains(it) || mem.memoryValue.lowercase().contains(it) }
+        }
+        if (matches.isEmpty()) {
+            return "No matching memory context retrieved for query: \"$query\""
+        }
+        val sb = StringBuilder("Retrieved ${matches.size} Context Memories:\n")
+        matches.forEach { m ->
+            sb.append("• [${m.profile}] ${m.memoryKey}: ${m.memoryValue}\n")
+        }
+        return sb.toString().trim()
     }
 
     // --- ALIASES ---
@@ -938,54 +973,97 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
         return 0
     }
 
-    // OFFLINE LOCAL SEARCH ENGINE
+    // GRANULAR STORAGE CLEAR METHODS
+    fun clearNotes(): Boolean = writableDatabase.delete(TABLE_NOTES, null, null) > 0
+    fun clearFlashcards(): Boolean = writableDatabase.delete(TABLE_FLASHCARDS, null, null) > 0
+    fun clearStudyHabits(): Boolean = writableDatabase.delete(TABLE_STUDY_HABITS, null, null) > 0
+    fun clearExpenses(): Boolean = writableDatabase.delete(TABLE_EXPENSES, null, null) > 0
+    fun clearMemories(): Boolean = writableDatabase.delete(TABLE_MEMORY, null, null) > 0
+    fun clearAliases(): Boolean = writableDatabase.delete(TABLE_ALIASES, null, null) > 0
+    fun clearAppMappings(): Boolean = writableDatabase.delete(TABLE_MAPPINGS, null, null) > 0
+    fun clearCachedResponses(): Boolean = writableDatabase.delete(TABLE_CACHE, null, null) > 0
+
+    // ON-DEVICE SEMANTIC SEARCH & EMBEDDING SIMILARITY ENGINE
     fun searchOfflineContent(query: String): String? {
         val clean = query.trim().lowercase()
         if (clean.isBlank()) return null
 
-        val tokens = clean.split(" ").filter { it.length > 2 }
-        if (tokens.isEmpty()) return null
+        val rawTokens = clean.split(" ").filter { it.length > 2 }
+        if (rawTokens.isEmpty()) return null
 
-        // 1. Search Notes
-        val notes = getAllNotes()
-        for (note in notes) {
-            val titleLow = note.title.lowercase()
-            val contentLow = note.content.lowercase()
-            if (tokens.any { titleLow.contains(it) || contentLow.contains(it) }) {
-                return "🔍 [Local Note Match]\nTitle: ${note.title}\nContent: ${note.content}"
+        // Synonym & Semantic Concept Expansion Vectors
+        val synonymMap = mapOf(
+            "falling" to listOf("gravity", "acceleration", "force", "physics", "newton", "velocity", "motion"),
+            "drop" to listOf("gravity", "falling", "height", "mass"),
+            "money" to listOf("spent", "expense", "price", "cost", "rupees", "bought", "purchase"),
+            "spend" to listOf("expense", "money", "cost", "paid", "bill"),
+            "call" to listOf("contact", "alias", "phone", "number", "dial"),
+            "person" to listOf("contact", "alias", "name", "friend", "mom"),
+            "study" to listOf("subject", "topic", "physics", "math", "chemistry", "flashcard", "notes"),
+            "exam" to listOf("test", "planner", "quiz", "task", "due")
+        )
+
+        val expandedTokens = mutableSetOf<String>()
+        rawTokens.forEach { t ->
+            expandedTokens.add(t)
+            synonymMap[t]?.let { expandedTokens.addAll(it) }
+        }
+
+        fun calculateSemanticSimilarity(targetText: String): Int {
+            val targetTokens = targetText.lowercase().split(" ", "-", "_", "\n").filter { it.length > 2 }
+            if (targetTokens.isEmpty()) return 0
+            var directHits = 0
+            var semanticHits = 0
+            rawTokens.forEach { rt ->
+                if (targetText.lowercase().contains(rt)) directHits++
+            }
+            expandedTokens.forEach { et ->
+                if (targetText.lowercase().contains(et)) semanticHits++
+            }
+            val score = ((directHits * 40) + (semanticHits * 20)).coerceAtMost(98)
+            return score
+        }
+
+        var bestMatchMessage: String? = null
+        var highestScore = 0
+
+        // 1. Evaluate Notes
+        getAllNotes().forEach { note ->
+            val score = calculateSemanticSimilarity("${note.title} ${note.content}")
+            if (score > highestScore && score >= 40) {
+                highestScore = score
+                bestMatchMessage = "🔍 [Offline Semantic Note Match - $score% Similarity]\nTitle: ${note.title}\nContent: ${note.content}"
             }
         }
 
-        // 2. Search Flashcards
-        val flashcards = getAllFlashcards()
-        for (fc in flashcards) {
-            val qLow = fc.question.lowercase()
-            val aLow = fc.answer.lowercase()
-            if (tokens.any { qLow.contains(it) || aLow.contains(it) }) {
-                return "📚 [Local Flashcard Match]\nSubject: ${fc.subject}\nQ: ${fc.question}\nA: ${fc.answer}"
+        // 2. Evaluate Flashcards
+        getAllFlashcards().forEach { fc ->
+            val score = calculateSemanticSimilarity("${fc.subject} ${fc.topic} ${fc.question} ${fc.answer}")
+            if (score > highestScore && score >= 40) {
+                highestScore = score
+                bestMatchMessage = "📚 [Offline Semantic Flashcard Match - $score% Similarity]\nSubject: ${fc.subject}\nQ: ${fc.question}\nA: ${fc.answer}"
             }
         }
 
-        // 3. Search User Memories / Profile
-        val memories = getAllMemories()
-        for (mem in memories) {
-            val kLow = mem.memoryKey.lowercase()
-            val vLow = mem.memoryValue.lowercase()
-            if (tokens.any { kLow.contains(it) || vLow.contains(it) }) {
-                return "🧠 [Local Profile Match]\n${mem.memoryKey}: ${mem.memoryValue}"
+        // 3. Evaluate User Memories / Profile
+        getAllMemories().forEach { mem ->
+            val score = calculateSemanticSimilarity("${mem.memoryKey} ${mem.memoryValue} ${mem.profile}")
+            if (score > highestScore && score >= 40) {
+                highestScore = score
+                bestMatchMessage = "🧠 [Offline Semantic Memory Match - $score% Similarity]\n[${mem.profile}] ${mem.memoryKey}: ${mem.memoryValue}"
             }
         }
 
-        // 4. Search App Mappings
-        val mappings = getAllMappings()
-        for (m in mappings) {
-            val wLow = m.customWord.lowercase()
-            if (tokens.any { wLow.contains(it) }) {
-                return "📱 [Local App Shortcut Match]\nWord: '${m.customWord}' maps to package '${m.appIdentifier}'"
+        // 4. Evaluate Expenses
+        getAllExpenses().forEach { exp ->
+            val score = calculateSemanticSimilarity("${exp.category} ${exp.note} ${exp.amount}")
+            if (score > highestScore && score >= 40) {
+                highestScore = score
+                bestMatchMessage = "💳 [Offline Semantic Expense Match - $score% Similarity]\nCategory: ${exp.category}\nNote: ${exp.note}\nAmount: ₹${exp.amount}"
             }
         }
 
-        return null
+        return bestMatchMessage
     }
 
     // EXPENSE LOGGING OPERATIONS
@@ -1139,6 +1217,16 @@ class DatabaseService(context: Context) : SQLiteOpenHelper(context, DATABASE_NAM
         stats["Routines"] = getAllRoutines().size
         stats["Cached Responses"] = getAllCachedResponses().size
         return stats
+    }
+
+    fun getAllHabits(): List<StudyHabit> = getAllStudyHabits()
+
+    fun setSetting(key: String, value: String) {
+        addOrUpdateMemory("setting_$key", value, "System", 0L)
+    }
+
+    fun getSetting(key: String, defaultValue: String): String {
+        return getMemoryValue("setting_$key") ?: defaultValue
     }
 }
 

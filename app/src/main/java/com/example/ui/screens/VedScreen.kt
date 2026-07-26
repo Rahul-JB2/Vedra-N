@@ -66,6 +66,7 @@ import com.example.ui.components.CustomList
 import com.example.ui.theme.Spacing
 import com.example.ui.theme.VedraBackground
 import com.example.ui.theme.VedraBorder
+import com.example.ui.theme.VedraCyanAccent
 import com.example.ui.theme.VedraPurplePrimary
 import com.example.ui.theme.VedraPurpleSecondary
 import com.example.ui.theme.VedraSurface
@@ -98,6 +99,7 @@ fun VedScreen(
     var inputText by remember { mutableStateOf("") }
     var isVoiceInputActive by remember { mutableStateOf(false) }
     var isThinking by remember { mutableStateOf(false) }
+    var isIncognitoMode by remember { mutableStateOf(false) }
 
     val isOnline = OfflineService.isNetworkAvailable.collectAsState().value
 
@@ -136,6 +138,9 @@ fun VedScreen(
         val clean = msgText.trim()
         if (clean.isEmpty()) return
 
+        // Turn-Taking VAD Cue: Instantly stop ongoing TTS playback when user interrupts
+        voiceService.stopSpeaking()
+
         // Direct App Launch Interceptor: If it's an app opening command ("open whatsapp", "open instagram"),
         // launch immediately without routing through chat interface or displaying response bubbles.
         if (DirectActionService.handleDirectAppLaunch(context, dbService, clean)) {
@@ -149,7 +154,6 @@ fun VedScreen(
         // Check & summarize chat history if exceeds 20 messages
         if (messages.size > 20) {
             val countToSummarize = messages.size - 6
-            val earlierMessages = messages.take(countToSummarize)
             val summaryText = "⚡ Context Condensed: Summarized $countToSummarize earlier messages to optimize token memory."
             val preserved = messages.drop(countToSummarize)
             messages.clear()
@@ -178,8 +182,10 @@ fun VedScreen(
                     // Inject user profile memory & aliases context into Gemini
                     val contextSummary = dbService.getUserContextSummary()
                     val geminiReply = GeminiService.generateResponse(clean, contextSummary)
-                    // Cache response for offline use
-                    dbService.saveCachedResponse(clean, geminiReply)
+                    // Cache response for offline use if not in Incognito Mode
+                    if (!isIncognitoMode) {
+                        dbService.saveCachedResponse(clean, geminiReply)
+                    }
                     geminiReply
                 }
             }
@@ -239,12 +245,24 @@ fun VedScreen(
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // Incognito Mode Toggle
+                CustomButton(
+                    text = if (isIncognitoMode) "🕶️ Incognito" else "🕶️ Off",
+                    onClick = { isIncognitoMode = !isIncognitoMode },
+                    isSecondary = !isIncognitoMode,
+                    modifier = Modifier.height(36.dp)
+                )
+
                 // Switch between Text & Voice Mode button
                 CustomButton(
                     text = if (isVoiceInputActive) "Voice ON" else "Voice OFF",
                     icon = if (isVoiceInputActive) Icons.Default.Mic else Icons.Default.MicOff,
                     onClick = {
+                        voiceService.stopSpeaking()
                         isVoiceInputActive = !isVoiceInputActive
                         if (isVoiceInputActive && hasMicPermission) {
                             voiceService.startListening(
@@ -261,6 +279,26 @@ fun VedScreen(
                     isSecondary = !isVoiceInputActive,
                     modifier = Modifier.height(36.dp)
                 )
+            }
+        }
+
+        // Incognito Banner
+        if (isIncognitoMode) {
+            CustomCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = Spacing.small),
+                containerColor = Color(0xFF1E1A29),
+                borderColor = VedraCyanAccent
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "🕶️ INCOGNITO ACTIVE — Session is stateless. No chat logs or memories are saved to database.",
+                        color = VedraCyanAccent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
 

@@ -75,10 +75,12 @@ import androidx.compose.ui.platform.LocalContext
 import com.example.services.PermissionService
 import com.example.services.PermissionStatus
 import com.example.services.TranslationService
+import com.example.services.VoiceService
 
 @Composable
 fun SettingsScreen(
     dbService: DatabaseService,
+    voiceService: VoiceService? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -88,6 +90,15 @@ fun SettingsScreen(
     var speechSpeed by remember { mutableFloatStateOf(1.0f) }
     var wakeWordEnabled by remember { mutableStateOf(true) }
     var floatingWidgetEnabled by remember { mutableStateOf(true) }
+
+    // Phase 16 State Variables
+    var speechPitch by remember { mutableFloatStateOf(dbService.getSetting("pitch", "1.0").toFloatOrNull() ?: 1.0f) }
+    var speechSpeedRate by remember { mutableFloatStateOf(dbService.getSetting("speed", "1.0").toFloatOrNull() ?: 1.0f) }
+    var selectedTone by remember { mutableStateOf(dbService.getSetting("tone", "Short & Direct")) }
+    var selectedEngine by remember { mutableStateOf(dbService.getSetting("engine", "Hybrid Cloud AI")) }
+    var customApiKey by remember { mutableStateOf(dbService.getSetting("api_key", "")) }
+    var customApiUrl by remember { mutableStateOf(dbService.getSetting("api_url", "https://api.openai.com/v1")) }
+    var clearConfirmSection by remember { mutableStateOf<String?>(null) }
 
     // Task Chains / Routines State
     var isAddRoutineModalOpen by remember { mutableStateOf(false) }
@@ -289,6 +300,166 @@ fun SettingsScreen(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
+                    }
+                }
+            }
+        }
+
+        // AI PERSONALITY CUSTOMIZER CARD
+        item {
+            CustomCard(borderColor = VedraPurplePrimary) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.Psychology, contentDescription = null, tint = VedraPurpleSecondary)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "AI PERSONALITY & VOICE CUSTOMIZER",
+                            color = VedraTextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
+
+                    // Voice Pitch Slider
+                    Text(text = "Voice Pitch: ${"%.2f".format(speechPitch)}x", color = VedraTextSecondary, fontSize = 12.sp)
+                    Slider(
+                        value = speechPitch,
+                        onValueChange = {
+                            speechPitch = it
+                            voiceService?.setPitchAndRate(speechPitch, speechSpeedRate)
+                            dbService.setSetting("pitch", speechPitch.toString())
+                        },
+                        valueRange = 0.5f..1.5f,
+                        colors = SliderDefaults.colors(thumbColor = VedraPurplePrimary, activeTrackColor = VedraPurplePrimary)
+                    )
+
+                    // Voice Speed Rate Slider
+                    Text(text = "Voice Speed Rate: ${"%.2f".format(speechSpeedRate)}x", color = VedraTextSecondary, fontSize = 12.sp)
+                    Slider(
+                        value = speechSpeedRate,
+                        onValueChange = {
+                            speechSpeedRate = it
+                            voiceService?.setPitchAndRate(speechPitch, speechSpeedRate)
+                            dbService.setSetting("speed", speechSpeedRate.toString())
+                        },
+                        valueRange = 0.5f..1.5f,
+                        colors = SliderDefaults.colors(thumbColor = VedraCyanAccent, activeTrackColor = VedraCyanAccent)
+                    )
+
+                    // Personality Tone
+                    Text(text = "Assistant Personality Tone", color = VedraTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf("Short & Direct", "Detailed & Conversational", "Empathetic Coach").forEach { tone ->
+                            val isSelected = selectedTone == tone
+                            CustomButton(
+                                text = tone,
+                                onClick = {
+                                    selectedTone = tone
+                                    dbService.setSetting("tone", tone)
+                                },
+                                isSecondary = !isSelected,
+                                modifier = Modifier.weight(1f).height(32.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // AI ENGINE SWITCHER CARD
+        item {
+            CustomCard(borderColor = VedraCyanAccent) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
+                    Text(
+                        text = "⚙️ AI ENGINE SWITCHER",
+                        color = VedraCyanAccent,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Choose model execution provider for local vs cloud fallback.",
+                        color = VedraTextSecondary,
+                        fontSize = 11.sp
+                    )
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf("Hybrid Cloud AI", "Strict Offline ONNX", "Custom API Endpoint").forEach { engine ->
+                            val isSelected = selectedEngine == engine
+                            CustomButton(
+                                text = engine,
+                                onClick = {
+                                    selectedEngine = engine
+                                    dbService.setSetting("engine", engine)
+                                },
+                                isSecondary = !isSelected,
+                                modifier = Modifier.weight(1f).height(32.dp)
+                            )
+                        }
+                    }
+
+                    if (selectedEngine == "Custom API Endpoint") {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        CustomInput(
+                            value = customApiKey,
+                            onValueChange = {
+                                customApiKey = it
+                                dbService.setSetting("api_key", it)
+                            },
+                            placeholder = "Custom API Key (e.g. sk-proj-...)"
+                        )
+                        CustomInput(
+                            value = customApiUrl,
+                            onValueChange = {
+                                customApiUrl = it
+                                dbService.setSetting("api_url", it)
+                            },
+                            placeholder = "Custom Endpoint URL (e.g. https://api.openai.com/v1)"
+                        )
+                    }
+                }
+            }
+        }
+
+        // GRANULAR STORAGE INSPECTOR CARD
+        item {
+            CustomCard(borderColor = VedraPinkAccent) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
+                    Text(
+                        text = "🗑️ GRANULAR STORAGE INSPECTOR",
+                        color = VedraPinkAccent,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Purge individual SQLite tables without deleting your entire database.",
+                        color = VedraTextSecondary,
+                        fontSize = 11.sp
+                    )
+
+                    val storageItems = listOf(
+                        "Notes" to dbService.getAllNotes().size,
+                        "Flashcards" to dbService.getAllFlashcards().size,
+                        "Habits" to dbService.getAllHabits().size,
+                        "Expenses" to dbService.getAllExpenses().size,
+                        "Memories" to dbService.getAllMemories().size,
+                        "Aliases" to dbService.getAllAliases().size,
+                        "Shortcuts" to dbService.getAllMappings().size
+                    )
+
+                    storageItems.forEach { (label, count) ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = "$label: $count records", color = VedraTextPrimary, fontSize = 12.sp)
+                            CustomButton(
+                                text = "Clear $label",
+                                onClick = { clearConfirmSection = label },
+                                isSecondary = true,
+                                modifier = Modifier.height(28.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -721,6 +892,45 @@ fun SettingsScreen(
                 },
                 modifier = Modifier.fillMaxWidth()
             )
+        }
+    }
+
+    // Clear Confirmation Modal
+    CustomModal(
+        visible = clearConfirmSection != null,
+        title = "Confirm Delete ${clearConfirmSection ?: ""}",
+        onDismissRequest = { clearConfirmSection = null }
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.medium)) {
+            Text(
+                text = "Are you sure you want to permanently delete all records in ${clearConfirmSection ?: ""}? This action cannot be undone.",
+                color = VedraTextSecondary,
+                fontSize = 13.sp
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CustomButton(
+                    text = "Cancel",
+                    onClick = { clearConfirmSection = null },
+                    isSecondary = true,
+                    modifier = Modifier.weight(1f)
+                )
+                CustomButton(
+                    text = "Delete All",
+                    onClick = {
+                        when (clearConfirmSection) {
+                            "Notes" -> dbService.clearNotes()
+                            "Flashcards" -> dbService.clearFlashcards()
+                            "Habits" -> dbService.clearStudyHabits()
+                            "Expenses" -> dbService.clearExpenses()
+                            "Memories" -> dbService.clearMemories()
+                            "Aliases" -> dbService.clearAliases()
+                            "Shortcuts" -> dbService.clearAppMappings()
+                        }
+                        clearConfirmSection = null
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
     }
 }

@@ -85,6 +85,13 @@ fun MemoryScreen(
     var isAddMemoryModalOpen by remember { mutableStateOf(false) }
     var inputMemoryKey by remember { mutableStateOf("") }
     var inputMemoryVal by remember { mutableStateOf("") }
+    var inputMemoryProfile by remember { mutableStateOf("General") } // "Study", "Personal", "General"
+    var inputMemoryExpiryDays by remember { mutableIntStateOf(0) } // 0, 1, 7, 30
+
+    // Memory Profile Switcher & Tester State
+    var selectedProfileFilter by remember { mutableStateOf("All") }
+    var testQueryInput by remember { mutableStateOf("") }
+    var testResultText by remember { mutableStateOf<String?>(null) }
 
     // Modal state for Alias
     var isAddAliasModalOpen by remember { mutableStateOf(false) }
@@ -103,7 +110,7 @@ fun MemoryScreen(
 
     fun refreshAll() {
         userMemories.clear()
-        userMemories.addAll(dbService.getAllMemories())
+        userMemories.addAll(dbService.getAllMemories(selectedProfileFilter))
 
         contactAliases.clear()
         contactAliases.addAll(dbService.getAllAliases())
@@ -232,6 +239,69 @@ fun MemoryScreen(
 
         // SUB-TAB 0: FACTS & CONTEXT
         if (activeSubTab == 0) {
+            // Profile Switcher Control
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val profiles = listOf("All", "Study", "Personal", "General")
+                    profiles.forEach { prof ->
+                        val isSelected = selectedProfileFilter.equals(prof, ignoreCase = true)
+                        CustomButton(
+                            text = prof,
+                            onClick = {
+                                selectedProfileFilter = prof
+                                refreshAll()
+                            },
+                            isSecondary = !isSelected,
+                            modifier = Modifier.weight(1f).height(32.dp)
+                        )
+                    }
+                }
+            }
+
+            // Memory Tester Tool Card
+            item {
+                CustomCard(borderColor = VedraPurplePrimary) {
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
+                        Text(
+                            text = "🧪 MEMORY RETRIEVAL TESTER",
+                            color = VedraPurplePrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = "Test what context VEDRA retrieves before executing a user prompt.",
+                            color = VedraTextSecondary,
+                            fontSize = 11.sp
+                        )
+                        CustomInput(
+                            value = testQueryInput,
+                            onValueChange = { testQueryInput = it },
+                            placeholder = "Enter query (e.g. What is my roll number?)"
+                        )
+                        CustomButton(
+                            text = "Test Retrieval",
+                            onClick = {
+                                if (testQueryInput.isNotBlank()) {
+                                    testResultText = dbService.testMemoryContext(testQueryInput)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(34.dp)
+                        )
+                        if (testResultText != null) {
+                            Text(
+                                text = testResultText!!,
+                                color = VedraCyanAccent,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -239,7 +309,7 @@ fun MemoryScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "SAVED USER FACTS",
+                        text = "SAVED USER FACTS (${selectedProfileFilter.uppercase()})",
                         color = VedraTextSecondary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp
@@ -250,6 +320,8 @@ fun MemoryScreen(
                         onClick = {
                             inputMemoryKey = ""
                             inputMemoryVal = ""
+                            inputMemoryProfile = "General"
+                            inputMemoryExpiryDays = 0
                             isAddMemoryModalOpen = true
                         },
                         modifier = Modifier.height(34.dp)
@@ -264,7 +336,7 @@ fun MemoryScreen(
 
             if (filteredFacts.isEmpty()) {
                 item {
-                    Text(text = "No user facts saved yet.", color = VedraTextMuted, fontSize = 13.sp)
+                    Text(text = "No user facts saved for $selectedProfileFilter profile.", color = VedraTextMuted, fontSize = 13.sp)
                 }
             } else {
                 items(filteredFacts, key = { it.id }) { mem ->
@@ -281,8 +353,20 @@ fun MemoryScreen(
                                 Icon(imageVector = Icons.Default.Psychology, contentDescription = null, tint = VedraPurpleSecondary)
                                 Spacer(modifier = Modifier.width(Spacing.medium))
                                 Column {
-                                    Text(text = mem.memoryKey, color = VedraTextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "[${mem.profile}] ",
+                                            color = VedraPurplePrimary,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                        Text(text = mem.memoryKey, color = VedraTextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    }
                                     Text(text = mem.memoryValue, color = VedraCyanAccent, fontSize = 12.sp)
+                                    if (mem.expiresAt > 0L) {
+                                        val remainingHours = ((mem.expiresAt - System.currentTimeMillis()) / (1000 * 3600)).coerceAtLeast(0)
+                                        Text(text = "⏳ Expires in ${remainingHours}h", color = Color(0xFFFFB74D), fontSize = 10.sp)
+                                    }
                                 }
                             }
 
@@ -533,13 +617,42 @@ fun MemoryScreen(
         onDismissRequest = { isAddMemoryModalOpen = false }
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.medium)) {
-            CustomInput(value = inputMemoryKey, onValueChange = { inputMemoryKey = it }, placeholder = "Memory Key (e.g. My school)")
-            CustomInput(value = inputMemoryVal, onValueChange = { inputMemoryVal = it }, placeholder = "Memory Value (e.g. BSEB Class 12)")
+            CustomInput(value = inputMemoryKey, onValueChange = { inputMemoryKey = it }, placeholder = "Memory Key (e.g. Roll Number)")
+            CustomInput(value = inputMemoryVal, onValueChange = { inputMemoryVal = it }, placeholder = "Memory Value (e.g. 210459)")
+            
+            Text(text = "Profile Category", color = VedraTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("Study", "Personal", "General").forEach { prof ->
+                    CustomButton(
+                        text = prof,
+                        onClick = { inputMemoryProfile = prof },
+                        isSecondary = inputMemoryProfile != prof,
+                        modifier = Modifier.weight(1f).height(32.dp)
+                    )
+                }
+            }
+
+            Text(text = "Memory Auto-Expiry", color = VedraTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                val expOptions = listOf(0 to "Never", 1 to "1 Day", 7 to "7 Days", 30 to "30 Days")
+                expOptions.forEach { (days, label) ->
+                    CustomButton(
+                        text = label,
+                        onClick = { inputMemoryExpiryDays = days },
+                        isSecondary = inputMemoryExpiryDays != days,
+                        modifier = Modifier.weight(1f).height(32.dp)
+                    )
+                }
+            }
+
             CustomButton(
                 text = "Save Memory",
                 onClick = {
                     if (inputMemoryKey.isNotBlank() && inputMemoryVal.isNotBlank()) {
-                        dbService.addOrUpdateMemory(inputMemoryKey, inputMemoryVal)
+                        val expiresAt = if (inputMemoryExpiryDays > 0) {
+                            System.currentTimeMillis() + (inputMemoryExpiryDays * 24 * 3600 * 1000L)
+                        } else 0L
+                        dbService.addOrUpdateMemory(inputMemoryKey, inputMemoryVal, inputMemoryProfile, expiresAt)
                         refreshAll()
                         isAddMemoryModalOpen = false
                     }

@@ -60,6 +60,11 @@ class VoiceService(private val context: Context) : TextToSpeech.OnInitListener {
         tts?.language = locale
     }
 
+    fun setPitchAndRate(pitch: Float, rate: Float) {
+        tts?.setPitch(pitch)
+        tts?.setSpeechRate(rate)
+    }
+
     fun speak(text: String, onComplete: (() -> Unit)? = null) {
         if (text.isBlank()) {
             onComplete?.invoke()

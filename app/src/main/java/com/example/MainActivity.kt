@@ -244,7 +244,8 @@ fun MainAppLayout(
                 }
                 5 -> SafeTabBoundary("Settings") {
                     SettingsScreen(
-                        dbService = dbService
+                        dbService = dbService,
+                        voiceService = voiceService
                     )
                 }
             }
