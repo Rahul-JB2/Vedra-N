@@ -5,9 +5,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +30,7 @@ import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Icon
@@ -41,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -55,6 +59,7 @@ import com.example.services.UtilityService
 import com.example.services.VoiceService
 import com.example.ui.theme.Spacing
 import com.example.ui.theme.VedraCyanAccent
+import com.example.ui.theme.VedraPinkAccent
 import com.example.ui.theme.VedraPurplePrimary
 import com.example.ui.theme.VedraSurface
 import com.example.ui.theme.VedraTextMuted
@@ -62,20 +67,40 @@ import com.example.ui.theme.VedraTextPrimary
 import com.example.ui.theme.VedraTextSecondary
 import kotlin.math.roundToInt
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FloatingAssistantWidget(
     voiceService: VoiceService,
     dbService: DatabaseService,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onActivateVoiceMode: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     var isExpanded by remember { mutableStateOf(false) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
 
-    var widgetResponseText by remember { mutableStateOf("TAP widget for quick micro-voice assistant or tools") }
-    var noteInputModal by remember { mutableStateOf(false) }
-    var quickNoteText by remember { mutableStateOf("") }
+    // Read customization from SQLite Settings
+    val widgetSize = dbService.getSetting("widget_size", "Medium")
+    val themeGlow = dbService.getSetting("widget_glow", "Neon Purple")
+    val opacityStr = dbService.getSetting("widget_opacity", "1.0")
+    val widgetOpacity = opacityStr.toFloatOrNull() ?: 1.0f
+
+    val orbSize = when (widgetSize) {
+        "Small" -> 44.dp
+        "Large" -> 68.dp
+        else -> 56.dp
+    }
+
+    val glowColor = when (themeGlow) {
+        "Cyan" -> VedraCyanAccent
+        "Minimal" -> Color.White.copy(alpha = 0.5f)
+        else -> VedraPurplePrimary
+    }
+
+    var widgetResponseText by remember { mutableStateOf("Tap or say \"Ved\" to speak") }
+    var textInputMode by remember { mutableStateOf(false) }
+    var textInputQuery by remember { mutableStateOf("") }
 
     Box(
         modifier = modifier
@@ -92,23 +117,48 @@ fun FloatingAssistantWidget(
             // Collapsed Floating Orb
             Box(
                 modifier = Modifier
-                    .size(56.dp)
+                    .size(orbSize)
+                    .alpha(widgetOpacity)
                     .clip(CircleShape)
-                    .background(VedraPurplePrimary)
-                    .border(2.dp, VedraCyanAccent, CircleShape)
-                    .shadow(8.dp, CircleShape)
-                    .clickable { isExpanded = true },
+                    .background(VedraSurface.copy(alpha = 0.9f))
+                    .border(2.dp, glowColor, CircleShape)
+                    .shadow(12.dp, CircleShape)
+                    .combinedClickable(
+                        onClick = {
+                            // Single Tap: Instantly trigger AI voice mode / listening
+                            if (voiceService.isListening.value) {
+                                voiceService.stopListening()
+                            } else {
+                                voiceService.startListening(
+                                    onResult = { query ->
+                                        val res = UtilityService.parseAndExecuteLocalCommand(context, dbService, query)
+                                        widgetResponseText = res.responseMessage
+                                        voiceService.speak(res.responseMessage)
+                                    },
+                                    onError = { err -> widgetResponseText = err }
+                                )
+                            }
+                        },
+                        onDoubleClick = {
+                            // Double Tap: Foreground app / full voice overlay
+                            onActivateVoiceMode?.invoke()
+                        },
+                        onLongClick = {
+                            // Long Press: Toggle Expanded Card
+                            isExpanded = true
+                        }
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.SmartToy,
-                    contentDescription = "Floating VEDRA Assistant",
-                    tint = Color.White,
-                    modifier = Modifier.size(28.dp)
+                    contentDescription = "VEDRA Floating Orb",
+                    tint = glowColor,
+                    modifier = Modifier.size(orbSize * 0.5f)
                 )
             }
         } else {
-            // Expanded Micro-Voice Overlay Sheet
+            // Expanded Card View
             AnimatedVisibility(
                 visible = isExpanded,
                 enter = fadeIn() + slideInVertically(),
@@ -117,156 +167,169 @@ fun FloatingAssistantWidget(
                 Box(
                     modifier = Modifier
                         .width(320.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(VedraSurface)
-                        .border(1.dp, VedraPurplePrimary, RoundedCornerShape(20.dp))
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(VedraSurface.copy(alpha = 0.95f))
+                        .border(1.5.dp, glowColor, RoundedCornerShape(24.dp))
                         .padding(Spacing.medium)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
+                        // Top Header: Purple "VEDRA" text and Close (X) icon
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.SmartToy,
-                                    contentDescription = null,
-                                    tint = VedraCyanAccent,
-                                    modifier = Modifier.size(20.dp)
+                                Text(
+                                    text = "VEDRA",
+                                    color = VedraPurplePrimary,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 16.sp
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
+                                // Status: Green dot with "Listening..." / "Online"
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(if (voiceService.isListening.value) Color(0xFF4CAF50) else Color.Gray)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "VEDRA Micro Assistant",
-                                    color = VedraTextPrimary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
+                                    text = if (voiceService.isListening.value) "Listening..." else "Online",
+                                    color = if (voiceService.isListening.value) Color(0xFF4CAF50) else VedraTextMuted,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
+
                             IconButton(onClick = { isExpanded = false }, modifier = Modifier.size(24.dp)) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
-                                    contentDescription = "Close",
+                                    contentDescription = "Close Card",
                                     tint = VedraTextMuted
                                 )
                             }
                         }
 
-                        // Response / Speech display
-                        Box(
+                        // Subtitle & Response Box
+                        Text(
+                            text = widgetResponseText,
+                            color = VedraTextSecondary,
+                            fontSize = 12.sp,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(Color(0xFF1E1E2E))
-                                .padding(12.dp)
-                        ) {
-                            Text(
-                                text = widgetResponseText,
-                                color = VedraTextSecondary,
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp
-                            )
-                        }
-
-                        // Mic Trigger
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(CircleShape)
-                                    .background(if (voiceService.isListening.value) Color(0xFFE53935) else VedraPurplePrimary)
-                                    .clickable {
-                                        if (voiceService.isListening.value) {
-                                            voiceService.stopListening()
-                                        } else {
-                                            voiceService.startListening(
-                                                onResult = { query ->
-                                                    val res = UtilityService.parseAndExecuteLocalCommand(context, dbService, query)
-                                                    widgetResponseText = res.responseMessage
-                                                    voiceService.speak(res.responseMessage)
-                                                },
-                                                onError = { err ->
-                                                    widgetResponseText = err
-                                                }
-                                            )
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Mic,
-                                    contentDescription = "Speak",
-                                    tint = Color.White
-                                )
-                            }
-                        }
-
-                        Text(
-                            text = "1-TAP QUICK ACTIONS",
-                            color = VedraTextMuted,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 10.sp
+                                .padding(10.dp)
                         )
 
-                        // 4 Quick Action Buttons
+                        Text(
+                            text = "Tap or say \"Ved\"",
+                            color = VedraTextMuted,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        )
+
+                        // Quick Action Grid (4 Shortcut Squares)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            QuickActionButton(
-                                icon = Icons.Default.FlashOn,
-                                label = "Torch",
-                                onClick = {
-                                    val res = UtilityService.parseAndExecuteLocalCommand(context, dbService, "turn on flashlight")
-                                    widgetResponseText = res.responseMessage
-                                }
-                            )
-                            QuickActionButton(
-                                icon = Icons.Default.EditNote,
-                                label = "Note",
-                                onClick = {
-                                    noteInputModal = true
-                                }
-                            )
-                            QuickActionButton(
-                                icon = Icons.Default.Calculate,
-                                label = "Calc",
-                                onClick = {
-                                    val res = UtilityService.parseAndExecuteLocalCommand(context, dbService, "calculator 25 * 4")
-                                    widgetResponseText = res.responseMessage
-                                }
-                            )
-                            QuickActionButton(
+                            QuickShortcutSquare(
                                 icon = Icons.Default.Apps,
-                                label = "Apps",
+                                label = "WhatsApp",
+                                onClick = {
+                                    val res = UtilityService.parseAndExecuteLocalCommand(context, dbService, "open whatsapp")
+                                    widgetResponseText = res.responseMessage
+                                }
+                            )
+                            QuickShortcutSquare(
+                                icon = Icons.Default.Apps,
+                                label = "YouTube",
                                 onClick = {
                                     val res = UtilityService.parseAndExecuteLocalCommand(context, dbService, "open youtube")
                                     widgetResponseText = res.responseMessage
                                 }
                             )
+                            QuickShortcutSquare(
+                                icon = Icons.Default.Calculate,
+                                label = "Calculator",
+                                onClick = {
+                                    val res = UtilityService.parseAndExecuteLocalCommand(context, dbService, "calculator 50 + 50")
+                                    widgetResponseText = res.responseMessage
+                                }
+                            )
+                            QuickShortcutSquare(
+                                icon = Icons.Default.EditNote,
+                                label = "Notes",
+                                onClick = {
+                                    val res = UtilityService.parseAndExecuteLocalCommand(context, dbService, "take note Check floating widget")
+                                    widgetResponseText = res.responseMessage
+                                }
+                            )
                         }
 
-                        if (noteInputModal) {
+                        if (textInputMode) {
                             CustomInput(
-                                value = quickNoteText,
-                                onValueChange = { quickNoteText = it },
-                                placeholder = "Type quick note & tap save..."
+                                value = textInputQuery,
+                                onValueChange = { textInputQuery = it },
+                                placeholder = "Type command & press enter..."
                             )
                             CustomButton(
-                                text = "Save Note to SQLite",
+                                text = "Submit Command",
                                 onClick = {
-                                    if (quickNoteText.isNotBlank()) {
-                                        dbService.addOrUpdateMemory("Quick Note", quickNoteText)
-                                        widgetResponseText = "Saved quick note: \"$quickNoteText\""
-                                        quickNoteText = ""
-                                        noteInputModal = false
+                                    if (textInputQuery.isNotBlank()) {
+                                        val res = UtilityService.parseAndExecuteLocalCommand(context, dbService, textInputQuery)
+                                        widgetResponseText = res.responseMessage
+                                        textInputQuery = ""
+                                        textInputMode = false
                                     }
                                 },
                                 modifier = Modifier.height(32.dp)
                             )
+                        }
+
+                        // Bottom Bar: Wide purple "Tap to talk" button and separate keyboard icon
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CustomButton(
+                                text = if (voiceService.isListening.value) "Listening... (Tap to stop)" else "Tap to talk",
+                                onClick = {
+                                    if (voiceService.isListening.value) {
+                                        voiceService.stopListening()
+                                    } else {
+                                        voiceService.startListening(
+                                            onResult = { query ->
+                                                val res = UtilityService.parseAndExecuteLocalCommand(context, dbService, query)
+                                                widgetResponseText = res.responseMessage
+                                                voiceService.speak(res.responseMessage)
+                                            },
+                                            onError = { err -> widgetResponseText = err }
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.weight(1f).height(38.dp)
+                            )
+
+                            IconButton(
+                                onClick = { textInputMode = !textInputMode },
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF2B293D))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Keyboard,
+                                    contentDescription = "Switch to Keyboard",
+                                    tint = VedraCyanAccent,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -276,7 +339,7 @@ fun FloatingAssistantWidget(
 }
 
 @Composable
-private fun QuickActionButton(
+private fun QuickShortcutSquare(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onClick: () -> Unit
@@ -284,25 +347,18 @@ private fun QuickActionButton(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF252438))
             .clickable { onClick() }
-            .padding(6.dp)
+            .padding(vertical = 8.dp, horizontal = 10.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF2B293D)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = VedraCyanAccent,
-                modifier = Modifier.size(18.dp)
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = VedraCyanAccent,
+            modifier = Modifier.size(22.dp)
+        )
         Spacer(modifier = Modifier.height(4.dp))
-        Text(text = label, color = VedraTextPrimary, fontSize = 10.sp)
+        Text(text = label, color = VedraTextPrimary, fontSize = 10.sp, fontWeight = FontWeight.Medium)
     }
 }

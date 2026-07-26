@@ -263,6 +263,10 @@ fun MainAppLayout(
                 com.example.ui.components.FloatingAssistantWidget(
                     voiceService = voiceService,
                     dbService = dbService,
+                    onActivateVoiceMode = {
+                        hasUserInteracted = true
+                        isVoiceModeActive = true
+                    },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(bottom = 24.dp, end = 16.dp)

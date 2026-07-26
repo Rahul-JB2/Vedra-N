@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.Icon
@@ -101,6 +102,12 @@ fun SettingsScreen(
     var customApiKey by remember { mutableStateOf(dbService.getSetting("api_key", "")) }
     var customApiUrl by remember { mutableStateOf(dbService.getSetting("api_url", "https://api.openai.com/v1")) }
     var clearConfirmSection by remember { mutableStateOf<String?>(null) }
+
+    // Phase 18 Floating Widget Customization
+    var widgetSizeSetting by remember { mutableStateOf(dbService.getSetting("widget_size", "Medium")) }
+    var widgetGlowSetting by remember { mutableStateOf(dbService.getSetting("widget_glow", "Neon Purple")) }
+    var widgetOpacitySetting by remember { mutableFloatStateOf(dbService.getSetting("widget_opacity", "1.0").toFloatOrNull() ?: 1.0f) }
+    var pinnedShortcutsSetting by remember { mutableStateOf(dbService.getSetting("widget_shortcuts", "WhatsApp,YouTube,Calculator,Notes")) }
 
     // Task Chains / Routines State
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -396,6 +403,81 @@ fun SettingsScreen(
                             fontWeight = FontWeight.Bold
                         )
                     }
+                }
+            }
+        }
+
+        // FLOATING WIDGET CUSTOMIZATION CARD
+        item {
+            CustomCard(borderColor = VedraCyanAccent) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.SmartToy, contentDescription = null, tint = VedraCyanAccent)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "🔮 FLOATING WIDGET CUSTOMIZATION",
+                            color = VedraTextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
+
+                    // Widget Size
+                    Text(text = "Widget Size", color = VedraTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf("Small", "Medium", "Large").forEach { size ->
+                            val isSelected = widgetSizeSetting == size
+                            CustomButton(
+                                text = size,
+                                onClick = {
+                                    widgetSizeSetting = size
+                                    dbService.setSetting("widget_size", size)
+                                },
+                                isSecondary = !isSelected,
+                                modifier = Modifier.weight(1f).height(32.dp)
+                            )
+                        }
+                    }
+
+                    // Theme Glow
+                    Text(text = "Theme Glow Border", color = VedraTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf("Neon Purple", "Cyan", "Minimal").forEach { theme ->
+                            val isSelected = widgetGlowSetting == theme
+                            CustomButton(
+                                text = theme,
+                                onClick = {
+                                    widgetGlowSetting = theme
+                                    dbService.setSetting("widget_glow", theme)
+                                },
+                                isSecondary = !isSelected,
+                                modifier = Modifier.weight(1f).height(32.dp)
+                            )
+                        }
+                    }
+
+                    // Opacity Slider
+                    Text(text = "Orb Transparency Opacity: ${"%.2f".format(widgetOpacitySetting)}", color = VedraTextSecondary, fontSize = 12.sp)
+                    Slider(
+                        value = widgetOpacitySetting,
+                        onValueChange = {
+                            widgetOpacitySetting = it
+                            dbService.setSetting("widget_opacity", widgetOpacitySetting.toString())
+                        },
+                        valueRange = 0.3f..1.0f,
+                        colors = SliderDefaults.colors(thumbColor = VedraCyanAccent, activeTrackColor = VedraCyanAccent)
+                    )
+
+                    // Pinned Shortcuts
+                    Text(text = "Pinned Shortcuts (4 items)", color = VedraTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    CustomInput(
+                        value = pinnedShortcutsSetting,
+                        onValueChange = {
+                            pinnedShortcutsSetting = it
+                            dbService.setSetting("widget_shortcuts", it)
+                        },
+                        placeholder = "e.g., WhatsApp,YouTube,Calculator,Notes"
+                    )
                 }
             }
         }
